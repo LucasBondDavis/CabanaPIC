@@ -4,6 +4,11 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <vector>
+#include <memory>
+#include <algorithm>
+
+#include <mpi.h>
 
 #include "types.h"
 #include "helpers.h"
@@ -24,6 +29,8 @@
 //---------------------------------------------------------------------------//
 int main( int argc, char* argv[] )
 {
+    // Initialize MPI runtime
+    MPI_Init( &argc, &argv );
     // Initialize the kokkos runtime.
     Cabana::initialize( argc, argv );
 
@@ -118,25 +125,51 @@ int main( int argc, char* argv[] )
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
+        // Get local MPI rank and world_size
+        int comm_rank = -1;
+        MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+        int comm_size = -1;
+        MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+        // Set kokkos device types
+        using DeviceType = Kokkos::Device<ExecutionSpace,MemorySpace>;
+
+        ////////// DISTRIBUTE //////////
+        std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
+        Kokkos::View<int*,MemorySpace> export_ranks( "export_ranks", nppc );
+        Kokkos::deep_copy( export_ranks, comm_rank );
+        // Create the plan
+        distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+            MPI_COMM_WORLD, export_ranks );
+        // TODO: remove this test
+        // for tests create a AoSoA to receive the data
+        particle_list_t copy_particles( num_particles );
+        // Do the migration
+        Cabana::migrate( *distributor, particles, copy_particles );
+        //auto slice_x_pos = Cabana::slice<0>( particles );
+        //auto slice_x_pos_copy = Cabana::slice<0>( copy_particles );
+        //printf("%lf, %lf\n", slice_x_pos(0), slice_x_pos_copy(0));
+
         // simulation loop
         const size_t num_steps = Parameters::instance().num_steps;
 
-        printf( "#***********************************************\n" );
-        printf ( "#num_step = %d\n" , num_steps );
-        printf ( "#Lx/de = %f\n" , Lx );
-        printf ( "#Ly/de = %f\n" , Ly );
-        printf ( "#Lz/de = %f\n" , Lz );
-        printf ( "#nx = %d\n" , nx );
-        printf ( "#ny = %d\n" , ny );
-        printf ( "#nz = %d\n" , nz );
-        printf ( "#nppc = %d\n" , nppc );
-        printf ( "# Ne = %d\n" , Ne );
-        printf ( "#dt*wpe = %f\n" , dt );
-        printf ( "#dx/de = %f\n" , Lx/(nx) );
-        printf ( "#dy/de = %f\n" , Ly/(ny) );
-        printf ( "#dz/de = %f\n" , Lz/(nz) );
-        printf ( "#n0 = %f\n" , n0 );
-        printf( "" );
+        if ( comm_rank == 0 ) {
+            printf ( "#***********************************************\n" );
+            printf ( "#num_step = %ld\n" , num_steps );
+            printf ( "#Lx/de = %f\n" , Lx );
+            printf ( "#Ly/de = %f\n" , Ly );
+            printf ( "#Lz/de = %f\n" , Lz );
+            printf ( "#nx = %ld\n" , nx );
+            printf ( "#ny = %ld\n" , ny );
+            printf ( "#nz = %ld\n" , nz );
+            printf ( "#nppc = %lf\n" , nppc );
+            printf ( "# Ne = %lf\n" , Ne );
+            printf ( "#dt*wpe = %f\n" , dt );
+            printf ( "#dx/de = %f\n" , Lx/(nx) );
+            printf ( "#dy/de = %f\n" , Ly/(ny) );
+            printf ( "#dz/de = %f\n" , Lz/(nz) );
+            printf ( "#n0 = %f\n" , n0 );
+            printf ( "#***********************************************\n" );
+        }
 
         for (size_t step = 0; step < num_steps; step++)
         {
