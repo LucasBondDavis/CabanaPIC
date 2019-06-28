@@ -19,7 +19,8 @@ void push(
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        Boundary boundary
+        Boundary boundary,
+        Kokkos::View<int*,MemorySpace> export_ranks
         )
 {
 
@@ -252,7 +253,8 @@ void push(
 
                 // Handle particles that cross cells
                 //move_p( position_x, position_y, position_z, cell, _a, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
-                move_p( position_x, position_y, position_z, cell, a0, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
+                move_p( position_x, position_y, position_z, cell, a0, q, local_pm,
+                    g, s, i, nx, ny, nz, num_ghosts, boundary, export_ranks );
 
                 // TODO: renable this
                 //if ( move_p( p0, local_pm, a0, g, qsp ) ) { // Unlikely

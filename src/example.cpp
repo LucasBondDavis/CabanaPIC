@@ -4,9 +4,7 @@
 
 #include <cstdlib>
 #include <iostream>
-#include <vector>
 #include <memory>
-#include <algorithm>
 
 #include <mpi.h>
 
@@ -29,9 +27,8 @@
 //---------------------------------------------------------------------------//
 int main( int argc, char* argv[] )
 {
-    // Initialize MPI runtime
+    // Initialize the MPI & kokkos runtimes
     MPI_Init( &argc, &argv );
-    // Initialize the kokkos runtime.
     Cabana::initialize( argc, argv );
 
     printf ("#On Kokkos execution space %s\n",
@@ -125,51 +122,30 @@ int main( int argc, char* argv[] )
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
-        // Get local MPI rank and world_size
-        int comm_rank = -1;
-        MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
-        int comm_size = -1;
-        MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
-        // Set kokkos device types
-        using DeviceType = Kokkos::Device<ExecutionSpace,MemorySpace>;
-
-        ////////// DISTRIBUTE //////////
-        std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
-        Kokkos::View<int*,MemorySpace> export_ranks( "export_ranks", nppc );
-        Kokkos::deep_copy( export_ranks, comm_rank );
-        // Create the plan
-        distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-            MPI_COMM_WORLD, export_ranks );
-        // TODO: remove this test
-        // for tests create a AoSoA to receive the data
-        particle_list_t copy_particles( num_particles );
-        // Do the migration
-        Cabana::migrate( *distributor, particles, copy_particles );
-        //auto slice_x_pos = Cabana::slice<0>( particles );
-        //auto slice_x_pos_copy = Cabana::slice<0>( copy_particles );
-        //printf("%lf, %lf\n", slice_x_pos(0), slice_x_pos_copy(0));
-
         // simulation loop
         const size_t num_steps = Parameters::instance().num_steps;
 
-        if ( comm_rank == 0 ) {
-            printf ( "#***********************************************\n" );
-            printf ( "#num_step = %ld\n" , num_steps );
-            printf ( "#Lx/de = %f\n" , Lx );
-            printf ( "#Ly/de = %f\n" , Ly );
-            printf ( "#Lz/de = %f\n" , Lz );
-            printf ( "#nx = %ld\n" , nx );
-            printf ( "#ny = %ld\n" , ny );
-            printf ( "#nz = %ld\n" , nz );
-            printf ( "#nppc = %lf\n" , nppc );
-            printf ( "# Ne = %lf\n" , Ne );
-            printf ( "#dt*wpe = %f\n" , dt );
-            printf ( "#dx/de = %f\n" , Lx/(nx) );
-            printf ( "#dy/de = %f\n" , Ly/(ny) );
-            printf ( "#dz/de = %f\n" , Lz/(nz) );
-            printf ( "#n0 = %f\n" , n0 );
-            printf ( "#***********************************************\n" );
-        }
+        // create pointer to distributor FIXME
+        int comm_rank = -1;
+        MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+        std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
+
+        printf ( "#***********************************************\n" );
+        printf ( "#num_step = %ld\n" , num_steps );
+        printf ( "#Lx/de = %f\n" , Lx );
+        printf ( "#Ly/de = %f\n" , Ly );
+        printf ( "#Lz/de = %f\n" , Lz );
+        printf ( "#nx = %ld\n" , nx );
+        printf ( "#ny = %ld\n" , ny );
+        printf ( "#nz = %ld\n" , nz );
+        printf ( "#nppc = %lf\n" , nppc );
+        printf ( "# Ne = %lf\n" , Ne );
+        printf ( "#dt*wpe = %f\n" , dt );
+        printf ( "#dx/de = %f\n" , Lx/(nx) );
+        printf ( "#dy/de = %f\n" , Ly/(ny) );
+        printf ( "#dz/de = %f\n" , Lz/(nz) );
+        printf ( "#n0 = %f\n" , n0 );
+        printf ( "#***********************************************\n" );
 
         for (size_t step = 0; step < num_steps; step++)
         {
@@ -184,6 +160,9 @@ int main( int argc, char* argv[] )
             //     // Sort by cell index
             //     auto keys = particles.slice<Cell_Index>();
             //     auto bin_data = Cabana::sortByKey( keys );
+            Kokkos::View<int*,MemorySpace> export_ranks( "export_ranks", particles.size() );
+            // TODO this breaks when particles.size == 0
+            Kokkos::deep_copy(export_ranks, comm_rank ); // set to pass to itself
 
             // Move
             push(
@@ -200,8 +179,20 @@ int main( int argc, char* argv[] )
                     ny,
                     nz,
                     num_ghosts,
-                    boundary
+                    boundary,
+                    export_ranks
                 );
+
+
+ /*           printf("Rank %d: ",comm_rank);
+            for ( int i=0; i<particles.size(); ++i)
+                printf("%d, ", export_ranks(i));
+            printf("\n"); */
+
+            // migrate particles across mpi ranks
+            distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+                MPI_COMM_WORLD, export_ranks );
+            Cabana::migrate( *distributor, particles );
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
             //for ( int zz = 0; zz < num_cells; zz++)
@@ -232,7 +223,7 @@ int main( int argc, char* argv[] )
 
             //     // Output vis
             //     vis.write_vis(particles, step);
-            printf("%d %f, %f\n",step, step*dt,field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
+            printf("time:%2ld %f, %f\n",step, step*dt,field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
         }
 
 
@@ -241,6 +232,7 @@ int main( int argc, char* argv[] )
     printf("#Good!\n");
     // Finalize.
     Cabana::finalize();
+    MPI_Finalize();
     return 0;
 }
 

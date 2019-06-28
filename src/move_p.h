@@ -6,7 +6,7 @@
 
 // I make no claims that this is a sensible way to do this.. I just want it working ASAP
 // THIS DEALS WITH GHOSTS ITSELF
-KOKKOS_INLINE_FUNCTION int detect_leaving_domain( size_t face, size_t nx, size_t ny, size_t nz, size_t ix, size_t iy, size_t iz, size_t num_ghosts)
+KOKKOS_INLINE_FUNCTION int detect_leaving_domain( size_t face, size_t nx, size_t ny, size_t nz, size_t ix, size_t iy, size_t iz, size_t num_ghosts )
 {
 
     //RANK_TO_INDEX(ii, ix, iy, iz, (nx+(2*num_ghosts)), (ny+(2*num_ghosts)));
@@ -72,7 +72,8 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        const Boundary boundary
+        const Boundary boundary,
+        Kokkos::View<int*,MemorySpace> export_ranks
     )
 {
 
@@ -216,7 +217,7 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
 
         size_t ix, iy, iz;
         //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
-        ix = ii-((nx+2)*(ny+2)+(nx+2)); //ii-12;
+        ix = ii-((nx+2)*(ny+2)+(nx+2)); //ii-12; FIXME why not (nx+2)*(ny+3)
         iy = 1;
         iz = 1;
 
@@ -227,9 +228,14 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
         if (face == 4) { iy++; }
         if (face == 5) { iz++; }
 
+        // Get local MPI rank and world_size
         int is_leaving_domain = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
         if (is_leaving_domain >= 0) {
-            /*     //std::cout << s << ", " << i << " leaving on " << face << std::endl; */
+            std::cout << s << ", " << i << " leaving on " << face << std::endl;
+            int comm_size = -1;
+            MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+            int comm_rank = -1;
+            MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
 
             /*     //std::cout << */
             /*         //" x " << position_x.access(s,i) << */
@@ -254,6 +260,7 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
 
                 if (is_leaving_domain == 0) { // -1 on x face
                     ix = (nx-1) + num_ghosts;
+                    export_ranks(i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
                 }
                 else if (is_leaving_domain == 1) { // -1 on y face
                     iy = (ny-1) + num_ghosts;
@@ -263,6 +270,7 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
                 }
                 else if (is_leaving_domain == 3) { // 1 on x face
                     ix = num_ghosts;
+                    export_ranks(i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
                 }
                 else if (is_leaving_domain == 4) { // 1 on y face
                     iy = num_ghosts;
@@ -275,9 +283,7 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
                 /*         ny, */
                 /*         nz, */
                 /*         num_ghosts); */
-
             }
-
 
             /*         if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect) */
             /*         { */

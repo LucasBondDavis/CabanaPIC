@@ -10,7 +10,7 @@ class Initializer {
             //logger << "Importing Default Input Deck" << std::endl;
             const real_t default_grid_len = 1.0;
 	    //1D
-            Parameters::instance().NX_global = _nc;
+            Parameters::instance().NX_global = 2; //_nc;
             Parameters::instance().NY_global = 1; //_nc;
             Parameters::instance().NZ_global = 1; //_nc;
 
@@ -28,13 +28,13 @@ class Initializer {
             Parameters::instance().num_real_cells =
                 Parameters::instance().nx * Parameters::instance().ny * Parameters::instance().nz;
 
-            Parameters::instance().NPPC = _nppc;
+            Parameters::instance().NPPC = 16; //_nppc;
 
             Parameters::instance().num_particles =  Parameters::instance().NPPC  *  Parameters::instance().num_real_cells;
 
             Parameters::instance().dt = 0.0863562;
 
-            Parameters::instance().num_steps = 2500;
+            Parameters::instance().num_steps = 25;
 
             Parameters::instance().v0 = 0.0866025403784439*4.0;
             real_t gam = 1.0/sqrt(1.0-Parameters::instance().v0*Parameters::instance().v0);
