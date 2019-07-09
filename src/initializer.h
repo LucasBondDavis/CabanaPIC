@@ -1,20 +1,24 @@
 #ifndef pic_init_h
 #define pic_init_h
 
+//TODO: remove this after testing
+#include <mpi.h>
 
 class Initializer {
     public:
   static void initialize_params(size_t _nc = 16, size_t _nppc = 16)
         {
-
             //logger << "Importing Default Input Deck" << std::endl;
             const real_t default_grid_len = 1.0;
 	    //1D
-            Parameters::instance().NX_global = 2; //_nc;
+            int comm_size = -1;
+            MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+
+            Parameters::instance().NX_global = _nc;
             Parameters::instance().NY_global = 1; //_nc;
             Parameters::instance().NZ_global = 1; //_nc;
 
-            Parameters::instance().nx = Parameters::instance().NX_global;
+            Parameters::instance().nx = Parameters::instance().NX_global/comm_size;
             Parameters::instance().ny = Parameters::instance().NY_global;
             Parameters::instance().nz = Parameters::instance().NZ_global;
 
@@ -28,13 +32,14 @@ class Initializer {
             Parameters::instance().num_real_cells =
                 Parameters::instance().nx * Parameters::instance().ny * Parameters::instance().nz;
 
-            Parameters::instance().NPPC = 16; //_nppc;
+            Parameters::instance().NPPC = _nppc;
 
             Parameters::instance().num_particles =  Parameters::instance().NPPC  *  Parameters::instance().num_real_cells;
 
             Parameters::instance().dt = 0.0863562;
+            //Parameters::instance().dt = 0.0001;
 
-            Parameters::instance().num_steps = 25;
+            Parameters::instance().num_steps = 250;
 
             Parameters::instance().v0 = 0.0866025403784439*4.0;
             real_t gam = 1.0/sqrt(1.0-Parameters::instance().v0*Parameters::instance().v0);
@@ -43,7 +48,7 @@ class Initializer {
             Parameters::instance().len_y_global = default_grid_len;
             Parameters::instance().len_z_global = default_grid_len;
 
-            Parameters::instance().len_x = Parameters::instance().len_x_global; //default_grid_len;
+            Parameters::instance().len_x = Parameters::instance().len_x_global/(float)comm_size; //default_grid_len;
             Parameters::instance().len_y = default_grid_len;
             Parameters::instance().len_z = default_grid_len;
 
@@ -62,6 +67,8 @@ class Initializer {
         // Function to intitialize the particles.
         static void initialize_particles( particle_list_t particles,size_t nx,size_t ny,size_t nz, real_t dxp, size_t nppc, real_t w)
         {
+            // increase everything based on rank
+
             // TODO: this doesnt currently do anything with nppc/num_cells
 
             auto position_x = particles.slice<PositionX>();
@@ -79,6 +86,12 @@ class Initializer {
 
             // TODO: sensible way to do rand in parallel?
             //srand (static_cast <unsigned> (time(0)));
+            // TODO: fix initialization for mpi
+            int rank = -1;
+            MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+            int mpi_size = -1;
+            MPI_Comm_size( MPI_COMM_WORLD, &mpi_size );
+            int mpi_offset = nx*rank;
 
             auto _init =
                 KOKKOS_LAMBDA( const int s, const int i )
@@ -92,6 +105,7 @@ class Initializer {
                     }
                     size_t pic = (2*pi)%nppc;
 
+                    // TODO throw out if outside local bounds
                     real_t x = pic*dxp+0.5f*dxp-1.f; //rand_float(-1.0f, 1.0f);
                     position_x.access(s,i) = x;
                     position_y.access(s,i) = 0.f; //rand_float(-1.0f, 1.0f);
@@ -107,10 +121,10 @@ class Initializer {
                     size_t pre_ghost = (2*pi/nppc)+1;
 
                     cell.access(s,i) = pre_ghost + (nx+2)*(ny+2) + (nx+2) ; //13; //allow_for_ghosts(pre_ghost);
-
                     // Initialize velocity.
-                    real_t na = 0.0001*sin(2.0*3.1415926*((x+1.0+pre_ghost*2)/(2*nx)));
-                    //
+                    real_t na = 0.01*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*mpi_size)));
+                    //printf("(%d, %d), x:%lf, v:%lf\n", s, i, x, na);
+                    
                     if (pi2%2 == 1) { sign = -1; }
                     real_t gam = 1.0/sqrt(1.0-v0*v0);
                     velocity_x.access(s,i) = sign * v0 *gam*(1.0+na); //0.1;

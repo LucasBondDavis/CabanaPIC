@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 #include <mpi.h>
 
@@ -41,8 +42,8 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 4000;
-        Initializer::initialize_params(64, npc);
+        size_t npc = 400;
+        Initializer::initialize_params(32, npc);
 
         // Cache some values locally for printing
         const size_t nx = Parameters::instance().nx;
@@ -82,6 +83,21 @@ int main( int argc, char* argv[] )
         //logger << "size " << particles.size() << std::endl;
         //logger << "numSoA " << particles.numSoA() << std::endl;
 
+/*
+        int rank = -1;
+        MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+        if ( 0 == rank ) {
+            printf("RANK 0\n");
+            Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
+        }
+        MPI_Barrier( MPI_COMM_WORLD );
+        if ( 1 == rank ) {
+            printf("RANK 1\n");
+            Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
+        }
+        MPI_Barrier( MPI_COMM_WORLD );
+*/
+        
         // Initialize particles.
         Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
 
@@ -117,35 +133,44 @@ int main( int argc, char* argv[] )
         //logger << "num_cells " << num_cells << std::endl;
         //logger << "Actual NPPC " << Parameters::instance().NPPC << std::endl;
 
-        // TODO: give these a real value
         const real_t px =  (nx>1) ? frac*c*dt/dx : 0;
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
-        // simulation loop
-        const size_t num_steps = Parameters::instance().num_steps;
-
-        // create pointer to distributor FIXME
+        // create pointer to distributor and halo
         int comm_rank = -1;
         MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
         std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
+        std::shared_ptr< Cabana::Halo<MemorySpace> > halo;
+        std::vector<int> halo_topology( 3 ); // in 1d? include ghosts
+        halo_topology = { comm_rank-1, comm_rank, comm_rank+1 };
+        Kokkos::View<int*,MemorySpace> halo_exports(
+            "halo_exports", num_cells );
+        Kokkos::View<int*,MemorySpace> halo_ids(
+            "halo_ids", num_cells );
+        
 
-        printf ( "#***********************************************\n" );
-        printf ( "#num_step = %ld\n" , num_steps );
-        printf ( "#Lx/de = %f\n" , Lx );
-        printf ( "#Ly/de = %f\n" , Ly );
-        printf ( "#Lz/de = %f\n" , Lz );
-        printf ( "#nx = %ld\n" , nx );
-        printf ( "#ny = %ld\n" , ny );
-        printf ( "#nz = %ld\n" , nz );
-        printf ( "#nppc = %lf\n" , nppc );
-        printf ( "# Ne = %lf\n" , Ne );
-        printf ( "#dt*wpe = %f\n" , dt );
-        printf ( "#dx/de = %f\n" , Lx/(nx) );
-        printf ( "#dy/de = %f\n" , Ly/(ny) );
-        printf ( "#dz/de = %f\n" , Lz/(nz) );
-        printf ( "#n0 = %f\n" , n0 );
-        printf ( "#***********************************************\n" );
+        // simulation loop
+
+        const size_t num_steps = Parameters::instance().num_steps;
+/*
+        printf( "#***********************************************\n" );
+        printf( "#num_step = %ld\n" , num_steps );
+        printf( "#Lx/de = %f\n" , Lx );
+        printf( "#Ly/de = %f\n" , Ly );
+        printf( "#Lz/de = %f\n" , Lz );
+        printf( "#nx = %ld\n" , nx );
+        printf( "#ny = %ld\n" , ny );
+        printf( "#nz = %ld\n" , nz );
+        printf( "#nppc = %lf\n" , nppc );
+        printf( "#Ne = %lf\n" , Ne );
+        printf( "#dt*wpe = %f\n" , dt );
+        printf( "#dx/de = %f\n" , Lx/(nx) );
+        printf( "#dy/de = %f\n" , Ly/(ny) );
+        printf( "#dz/de = %f\n" , Lz/(nz) );
+        printf( "#n0 = %f\n" , n0 );
+        printf( "#***********************************************\n" );
+*/
 
         for (size_t step = 0; step < num_steps; step++)
         {
@@ -155,14 +180,12 @@ int main( int argc, char* argv[] )
             load_interpolator_array(fields, interpolators, nx, ny, nz, num_ghosts);
 
             clear_accumulator_array(fields, accumulators, nx, ny, nz);
-            //     // TODO: Make the frequency of this configurable (every step is not
-            //     // required for this incarnation)
-            //     // Sort by cell index
             //     auto keys = particles.slice<Cell_Index>();
             //     auto bin_data = Cabana::sortByKey( keys );
-            Kokkos::View<int*,MemorySpace> export_ranks( "export_ranks", particles.size() );
-            // TODO this breaks when particles.size == 0
-            Kokkos::deep_copy(export_ranks, comm_rank ); // set to pass to itself
+
+            Kokkos::View<int*,MemorySpace> dist_exports( "dist_exports", particles.size() );
+            // FIXME: this breaks when particles.size == 0
+            Kokkos::deep_copy(dist_exports, comm_rank ); // set to pass to itself
 
             // Move
             push(
@@ -180,18 +203,12 @@ int main( int argc, char* argv[] )
                     nz,
                     num_ghosts,
                     boundary,
-                    export_ranks
+                    dist_exports
                 );
-
-
- /*           printf("Rank %d: ",comm_rank);
-            for ( int i=0; i<particles.size(); ++i)
-                printf("%d, ", export_ranks(i));
-            printf("\n"); */
 
             // migrate particles across mpi ranks
             distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-                MPI_COMM_WORLD, export_ranks );
+                MPI_COMM_WORLD, dist_exports );
             Cabana::migrate( *distributor, particles );
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
@@ -203,7 +220,6 @@ int main( int argc, char* argv[] )
             // Only reset the data if these two are not the same arrays
             scatter_add.reset_except(accumulators);
 
-            // TODO: boundaries? MPI
             // boundary_p(); // Implies Parallel?
 
             // Map accumulator current back onto the fields
@@ -213,17 +229,36 @@ int main( int argc, char* argv[] )
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
 
             // Advance the electric field from E_0 to E_1
-            field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+            MPI_Barrier( MPI_COMM_WORLD );
+            if ( comm_rank == 0 ) {
+                //printf("# RANK 0\n");
+                field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+            }
+            MPI_Barrier( MPI_COMM_WORLD );
+            if ( comm_rank == 1 ) {
+                //printf("# RANK 1\n");
+                field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+            }
+            //field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
 
             //     // Half advance the magnetic field from B_{1/2} to B_1
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
+
+            //Cabana::gather( *halo, fields ); // TODO: I think this is the basic idea to gather ghosts
 
             //     // Print particles.
             //     print_particles( particles );
 
             //     // Output vis
             //     vis.write_vis(particles, step);
-            printf("time:%2ld %f, %f\n",step, step*dt,field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
+            // reduce over mpi ranks
+            float e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
+            float total_e_energy = -1;
+            MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD );
+            if ( comm_rank == 0 )
+                printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
+            //if ( comm_rank == 0 )
+            //    printf("time:%ld %f, %f\n",step, step*dt, field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
         }
 
 
