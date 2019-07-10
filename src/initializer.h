@@ -81,17 +81,17 @@ class Initializer {
 
             auto weight = particles.slice<Weight>();
             auto cell = particles.slice<Cell_Index>();
+            auto mpi_rank = particles.slice<Comm_Rank>();
 
             float v0 = Parameters::instance().v0;
 
             // TODO: sensible way to do rand in parallel?
             //srand (static_cast <unsigned> (time(0)));
-            // TODO: fix initialization for mpi
-            int rank = -1;
-            MPI_Comm_rank( MPI_COMM_WORLD, &rank );
-            int mpi_size = -1;
-            MPI_Comm_size( MPI_COMM_WORLD, &mpi_size );
-            int mpi_offset = nx*rank;
+            int comm_rank = -1;
+            MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+            int comm_size = -1;
+            MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+            int mpi_offset = nx*comm_rank;
 
             auto _init =
                 KOKKOS_LAMBDA( const int s, const int i )
@@ -122,7 +122,7 @@ class Initializer {
 
                     cell.access(s,i) = pre_ghost + (nx+2)*(ny+2) + (nx+2) ; //13; //allow_for_ghosts(pre_ghost);
                     // Initialize velocity.
-                    real_t na = 0.01*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*mpi_size)));
+                    real_t na = 0.01*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*comm_size)));
                     //printf("(%d, %d), x:%lf, v:%lf\n", s, i, x, na);
                     
                     if (pi2%2 == 1) { sign = -1; }
@@ -130,6 +130,9 @@ class Initializer {
                     velocity_x.access(s,i) = sign * v0 *gam*(1.0+na); //0.1;
                     velocity_y.access(s,i) = 0;
                     velocity_z.access(s,i) = 0;
+
+                    // Set mpi comm_rank
+                    mpi_rank.access(s,i) = comm_rank;
                 };
 
             Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>

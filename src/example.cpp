@@ -34,6 +34,11 @@ int main( int argc, char* argv[] )
 
     printf ("#On Kokkos execution space %s\n",
             typeid (Kokkos::DefaultExecutionSpace).name ());
+
+    int comm_size = -1;
+    MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+    int comm_rank = -1;
+    MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
     // Cabana scoping block
     {
 
@@ -137,17 +142,25 @@ int main( int argc, char* argv[] )
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
-        // create pointer to distributor and halo
-        int comm_rank = -1;
-        MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+        // create pointer to distributor
         std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
+        auto distributor_exports = particles.slice<Comm_Rank>();
+
+        printf("distributor_exports.size(): %lu\n", distributor_exports.size());
+        std::vector<int> temp_neigh(1);
+        temp_neigh.push_back(0);
+
+        distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+            MPI_COMM_WORLD, distributor_exports );
+        // create pointer and plan for halo
         std::shared_ptr< Cabana::Halo<MemorySpace> > halo;
         std::vector<int> halo_topology( 3 ); // in 1d? include ghosts
-        halo_topology = { comm_rank-1, comm_rank, comm_rank+1 };
         Kokkos::View<int*,MemorySpace> halo_exports(
             "halo_exports", num_cells );
         Kokkos::View<int*,MemorySpace> halo_ids(
             "halo_ids", num_cells );
+        // set neighbors for topology
+        halo_topology = { comm_rank-1, comm_rank, comm_rank+1 };
         
 
         // simulation loop
@@ -183,10 +196,6 @@ int main( int argc, char* argv[] )
             //     auto keys = particles.slice<Cell_Index>();
             //     auto bin_data = Cabana::sortByKey( keys );
 
-            Kokkos::View<int*,MemorySpace> dist_exports( "dist_exports", particles.size() );
-            // FIXME: this breaks when particles.size == 0
-            Kokkos::deep_copy(dist_exports, comm_rank ); // set to pass to itself
-
             // Move
             push(
                     particles,
@@ -202,19 +211,16 @@ int main( int argc, char* argv[] )
                     ny,
                     nz,
                     num_ghosts,
-                    boundary,
-                    dist_exports
+                    boundary
                 );
 
             // migrate particles across mpi ranks
-            distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-                MPI_COMM_WORLD, dist_exports );
-            Cabana::migrate( *distributor, particles );
+            //Cabana::migrate( *distributor, particles );
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
             //for ( int zz = 0; zz < num_cells; zz++)
             //{
-                //std::cout << "post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
+            //  std::cout << "rank 0: post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
             //}
 
             // Only reset the data if these two are not the same arrays
@@ -229,17 +235,7 @@ int main( int argc, char* argv[] )
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
 
             // Advance the electric field from E_0 to E_1
-            MPI_Barrier( MPI_COMM_WORLD );
-            if ( comm_rank == 0 ) {
-                //printf("# RANK 0\n");
-                field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
-            }
-            MPI_Barrier( MPI_COMM_WORLD );
-            if ( comm_rank == 1 ) {
-                //printf("# RANK 1\n");
-                field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
-            }
-            //field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+            field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
 
             //     // Half advance the magnetic field from B_{1/2} to B_1
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
@@ -260,7 +256,6 @@ int main( int argc, char* argv[] )
             //if ( comm_rank == 0 )
             //    printf("time:%ld %f, %f\n",step, step*dt, field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
         }
-
 
     } // End Scoping block
 

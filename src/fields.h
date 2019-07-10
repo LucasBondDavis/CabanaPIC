@@ -133,9 +133,9 @@ class ES_Field_Solver_1D
                 int ix, iy, iz;
                 RANK_TO_INDEX(i, ix, iy, iz, nx+2, ny+2);
                 //printf("# %d (%2d,%2d,%2d): %f\n", i, ix, iy, iz, jfx(i));
-                if ( iy == 1 &&  iz == 1 ) {
-                    printf("%d, %f\n", ix, jfx(i));
-                }
+                //if ( iy == 1 &&  iz == 1 ) {
+                //    printf("%d, %f\n", ix, jfx(i));
+                //}
                 const float cj = 1; // TODO: g->dt/g->eps0;
                 ex(i) = ex(i) + ( - cj * jfx(i) ) ;
             };

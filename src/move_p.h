@@ -52,13 +52,15 @@ KOKKOS_INLINE_FUNCTION int detect_leaving_domain( size_t face, size_t nx, size_t
 
 // TODO: add namespace etc?
 // TODO: port this to cabana syntax
-template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS_INLINE_FUNCTION int move_p(
+template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6> 
+KOKKOS_INLINE_FUNCTION int move_p(
         //particle_list_t particles,
         T1& position_x,
         T2& position_y,
         T3& position_z,
         T4& cell,
         T5& a0, // TODO: does this need to be const
+        T6& mpi_rank, // slice of mpi ranks (particle destinations)
         real_t q,
         particle_mover_t& pm,
         const grid_t* g,
@@ -68,8 +70,7 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        const Boundary boundary,
-        Kokkos::View<int*,MemorySpace> export_ranks
+        const Boundary boundary
     )
 {
     // Get local MPI rank and world_size
@@ -143,9 +144,6 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
         int ii = cell.access(s, i);
 
         //a = (float *)(a0 + ii);
-
-        //1D only TODO maybe these are the problem for 2 mpi ranks
-        printf("(%ld,%ld) ii: %d, q*s_dispx: %lf\n", s, i, ii, q*s_dispx);
         _asa(ii,accumulator_var::jx, 0) += q*s_dispx;
         _asa(ii,accumulator_var::jx, 1) += 0.0;
         _asa(ii,accumulator_var::jx, 2) += 0.0;
@@ -253,9 +251,9 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
                 /* iz = 1; */
 
                 if (is_leaving_domain == 0) { // -1 on x face
-                    ix = (nx-1) + num_ghosts; // TODO check that this should still be the same for 2 ranks
-                    export_ranks(s*i+i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
-                    printf("# %d EXPORT (%lu,%lu)->%d\n", comm_rank, s, i, export_ranks(s*i+i));
+                    ix = (nx-1) + num_ghosts;
+                    mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
+                    //printf("# %d EXPORT (%lu,%lu)->%d\n", comm_rank, s, i, mpi_rank.access(s,i));
                 }
                 else if (is_leaving_domain == 1) { // -1 on y face
                     iy = (ny-1) + num_ghosts;
@@ -265,8 +263,8 @@ template<typename T1, typename T2, typename T3, typename T4, typename T5> KOKKOS
                 }
                 else if (is_leaving_domain == 3) { // 1 on x face
                     ix = num_ghosts;
-                    export_ranks(s*i+i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-                    printf("# %d EXPORT (%lu,%lu)->%d\n", comm_rank, s, i, export_ranks(s*i+i));
+                    mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
+                    //printf("# %d EXPORT (%lu,%lu)->%d\n", comm_rank, s, i, mpi_rank.access(s,i));
                 }
                 else if (is_leaving_domain == 4) { // 1 on y face
                     iy = num_ghosts;

@@ -19,8 +19,7 @@ void push(
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        Boundary boundary,
-        Kokkos::View<int*,MemorySpace> export_ranks
+        Boundary boundary
         )
 {
 
@@ -37,6 +36,7 @@ void push(
 
     auto weight = particles.slice<Weight>();
     auto cell = particles.slice<Cell_Index>();
+    auto mpi_rank = particles.slice<Comm_Rank>();
 
     //const real_t qdt_4mc        = -0.5*qdt_2mc; // For backward half rotate
     const real_t one            = 1.;
@@ -253,8 +253,8 @@ void push(
 
                 // Handle particles that cross cells
                 //move_p( position_x, position_y, position_z, cell, _a, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
-                move_p( position_x, position_y, position_z, cell, a0, q, local_pm,
-                    g, s, i, nx, ny, nz, num_ghosts, boundary, export_ranks );
+                move_p( position_x, position_y, position_z, cell, a0, mpi_rank,
+                    q, local_pm, g, s, i, nx, ny, nz, num_ghosts, boundary );
 
                 // TODO: renable this
                 //if ( move_p( p0, local_pm, a0, g, qsp ) ) { // Unlikely

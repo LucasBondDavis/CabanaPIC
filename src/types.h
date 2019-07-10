@@ -51,6 +51,7 @@ enum UserParticleFields
     VelocityZ,
     Weight,
     Cell_Index, // This is stored as per VPIC, such that it includes ghost_offsets
+    Comm_Rank
 };
 
 // Designate the types that the particles will hold.
@@ -63,7 +64,8 @@ Cabana::MemberTypes<
     float,                        // (4) y-velocity
     float,                        // (5) z-velocity
     float,                        // (6) weight
-    int                           // (7) Cell index
+    int,                          // (7) Cell index
+    int                           // (8) MPI rank
 >;
 
 // Set the type for the particle AoSoA.
