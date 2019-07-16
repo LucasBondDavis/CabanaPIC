@@ -2,6 +2,8 @@
 #include <Cabana_Core.hpp>
 #include <Cabana_Sort.hpp> // is this needed if we already have core?
 
+#include <Kokkos_Core.hpp>
+
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -119,8 +121,8 @@ int main( int argc, char* argv[] )
 
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
             //<Kokkos::Experimental::ScatterSum,
-             //KOKKOS_SCATTER_DUPLICATED,
-             //KOKKOS_SCATTER_ATOMIC>(accumulators);
+            //KOKKOS_SCATTER_DUPLICATED,
+            //KOKKOS_SCATTER_ATOMIC>(accumulators);
 
         field_array_t fields(num_cells);
 
@@ -142,16 +144,11 @@ int main( int argc, char* argv[] )
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
-        // create pointer to distributor
-        std::shared_ptr< Cabana::Distributor<MemorySpace> > distributor;
-        auto distributor_exports = particles.slice<Comm_Rank>();
-
-        printf("distributor_exports.size(): %lu\n", distributor_exports.size());
-        std::vector<int> temp_neigh(1);
-        temp_neigh.push_back(0);
-
-        distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-            MPI_COMM_WORLD, distributor_exports );
+        // create particles distributor
+        std::shared_ptr< Cabana::Distributor<MemorySpace> > particles_distributor;
+        auto particles_exports = particles.slice<Comm_Rank>();
+        particles_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+            MPI_COMM_WORLD, particles_exports );
         // create pointer and plan for halo
         std::shared_ptr< Cabana::Halo<MemorySpace> > halo;
         std::vector<int> halo_topology( 3 ); // in 1d? include ghosts
@@ -215,17 +212,44 @@ int main( int argc, char* argv[] )
                 );
 
             // migrate particles across mpi ranks
-            //Cabana::migrate( *distributor, particles );
+            Cabana::migrate( *particles_distributor, particles );
+            // TODO: make 3d
+            auto disp_x = particles.slice<DispX>();
+            auto _move_p = 
+                KOKKOS_LAMBDA( const int s, const int i ) {
+                    while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
+                    //if ( disp_x.access(s,i) > 0 ) {
+                        //printf("(%d,%d): disp_x=%f\n", s, i, disp_x.access(s,i));
+                        auto weights = particles.slice<Weight>();
+                        real_t q = weights.access(s,i)*qsp;
+                        move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
+                                num_ghosts, boundary );
+                    }
+                };
+            Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
+                vec_policy( 0, particles.size() );
+            Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
+            
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
-            //for ( int zz = 0; zz < num_cells; zz++)
-            //{
-            //  std::cout << "rank 0: post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
-            //}
 
             // Only reset the data if these two are not the same arrays
             scatter_add.reset_except(accumulators);
 
+            int ix, iy, iz;
+            MPI_Barrier( MPI_COMM_WORLD );
+            for ( int rr = 0; rr < comm_size; ++rr ) {
+              MPI_Barrier( MPI_COMM_WORLD );
+              if ( comm_rank == rr ) {
+                for ( int zz = 0; zz < num_cells; zz++) {
+                  RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
+                  if ( iy == 1 && iz == 1 )
+                    //std::cout << "rank " << comm_rank << ": post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
+                    std::cout << ix << " " << accumulators(zz,0,0) << std::endl;
+                }
+              }
+              MPI_Barrier( MPI_COMM_WORLD );
+            }
             // boundary_p(); // Implies Parallel?
 
             // Map accumulator current back onto the fields
@@ -236,6 +260,7 @@ int main( int argc, char* argv[] )
 
             // Advance the electric field from E_0 to E_1
             field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+            MPI_Barrier( MPI_COMM_WORLD );
 
             //     // Half advance the magnetic field from B_{1/2} to B_1
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);

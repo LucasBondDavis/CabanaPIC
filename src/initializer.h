@@ -37,7 +37,7 @@ class Initializer {
             Parameters::instance().num_particles =  Parameters::instance().NPPC  *  Parameters::instance().num_real_cells;
 
             Parameters::instance().dt = 0.0863562;
-            //Parameters::instance().dt = 0.0001;
+            //Parameters::instance().dt = 0.002;
 
             Parameters::instance().num_steps = 250;
 
@@ -78,6 +78,10 @@ class Initializer {
             auto velocity_x = particles.slice<VelocityX>();
             auto velocity_y = particles.slice<VelocityY>();
             auto velocity_z = particles.slice<VelocityZ>();
+
+            auto disp_x = particles.slice<DispX>();
+            auto disp_y = particles.slice<DispY>();
+            auto disp_z = particles.slice<DispZ>();
 
             auto weight = particles.slice<Weight>();
             auto cell = particles.slice<Cell_Index>();

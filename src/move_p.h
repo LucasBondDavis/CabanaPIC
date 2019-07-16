@@ -52,17 +52,11 @@ KOKKOS_INLINE_FUNCTION int detect_leaving_domain( size_t face, size_t nx, size_t
 
 // TODO: add namespace etc?
 // TODO: port this to cabana syntax
-template<typename T1, typename T2, typename T3, typename T4, typename T5, typename T6> 
+template<typename T>
 KOKKOS_INLINE_FUNCTION int move_p(
-        //particle_list_t particles,
-        T1& position_x,
-        T2& position_y,
-        T3& position_z,
-        T4& cell,
-        T5& a0, // TODO: does this need to be const
-        T6& mpi_rank, // slice of mpi ranks (particle destinations)
+        T& a0, // TODO: does this need to be const
+        particle_list_t particles,
         real_t q,
-        particle_mover_t& pm,
         const grid_t* g,
         const size_t s,
         const size_t i,
@@ -79,6 +73,22 @@ KOKKOS_INLINE_FUNCTION int move_p(
     int comm_rank = -1;
     MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
 
+    auto position_x = particles.slice<PositionX>();
+    auto position_y = particles.slice<PositionY>();
+    auto position_z = particles.slice<PositionZ>();
+
+    auto velocity_x = particles.slice<VelocityX>();
+    auto velocity_y = particles.slice<VelocityY>();
+    auto velocity_z = particles.slice<VelocityZ>();
+
+    auto disp_x = particles.slice<DispX>();
+    auto disp_y = particles.slice<DispY>();
+    auto disp_z = particles.slice<DispZ>();
+
+    auto weight = particles.slice<Weight>();
+    auto cell = particles.slice<Cell_Index>();
+    auto mpi_rank = particles.slice<Comm_Rank>();
+
     auto _asa = a0.access(); // accumulator scatter access
 
     /* // Kernel variables */
@@ -89,6 +99,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
     /* //int index = pm->i; */
 
     //q = qsp * weight.access(s, i);
+    bool exported = false; // for particle pass ( return 1; )
 
     for(;;)
     {
@@ -102,9 +113,9 @@ KOKKOS_INLINE_FUNCTION int move_p(
         float s_midy = position_y.access(s, i);
         float s_midz = position_z.access(s, i);
 
-        float s_dispx = pm.dispx;
-        float s_dispy = pm.dispy;
-        float s_dispz = pm.dispz;
+        float s_dispx = disp_x.access(s,i);
+        float s_dispy = disp_y.access(s,i);
+        float s_dispz = disp_z.access(s,i);
 
         s_dir[0] = (s_dispx>0) ? 1 : -1;
         s_dir[1] = (s_dispy>0) ? 1 : -1;
@@ -174,9 +185,9 @@ KOKKOS_INLINE_FUNCTION int move_p(
         // #   undef accumulate_j
 
         // Compute the remaining particle displacment
-        pm.dispx -= s_dispx;
-        pm.dispy -= s_dispy;
-        pm.dispz -= s_dispz;
+        disp_x.access(s,i) -= s_dispx;
+        disp_y.access(s,i) -= s_dispy;
+        disp_z.access(s,i) -= s_dispz;
 
         //printf("%d %d, %d, %f %f",s, i, ii, position_x.access(s, i),position_x.access(s, i));
         // Compute the new particle offset
@@ -235,6 +246,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
                  //" z " << position_z.access(s,i) <<
                  //" cell " << cell.access(s,i) <<
                  //std::endl;
+            // TODO: make neighbor list for 3d (look at VPIC)
 
             if ( boundary == Boundary::Periodic)
             {
@@ -243,12 +255,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
                 // TODO: we can do this in 1d just fine
 
-                //size_t ix, iy, iz;
+                //siz_t ix, iy, iz;
 
                 //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
                 /* ix = ii-12; */
                 /* iy = 1; */
                 /* iz = 1; */
+                exported = true; // for return 1 later
 
                 if (is_leaving_domain == 0) { // -1 on x face
                     ix = (nx-1) + num_ghosts;
@@ -350,6 +363,9 @@ KOKKOS_INLINE_FUNCTION int move_p(
         if (axis == 0) position_x.access(s, i) = -v0;
         if (axis == 1) position_y.access(s, i) = -v0;
         if (axis == 2) position_z.access(s, i) = -v0;
+
+        if ( exported ) return 1;
+
     }
 
     return 0; // Return "mover not in use"

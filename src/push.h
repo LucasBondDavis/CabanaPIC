@@ -34,6 +34,10 @@ void push(
     auto velocity_y = particles.slice<VelocityY>();
     auto velocity_z = particles.slice<VelocityZ>();
 
+    auto disp_x = particles.slice<DispX>();
+    auto disp_y = particles.slice<DispY>();
+    auto disp_z = particles.slice<DispZ>();
+
     auto weight = particles.slice<Weight>();
     auto cell = particles.slice<Cell_Index>();
     auto mpi_rank = particles.slice<Comm_Rank>();
@@ -116,7 +120,7 @@ void push(
             // Perform push
 
             // TODO: deal with pm's
-            particle_mover_t local_pm = particle_mover_t();
+            //particle_mover_t local_pm = particle_mover_t();
 
             real_t dx = position_x.access(s,i);   // Load position
             real_t dy = position_y.access(s,i);   // Load position
@@ -245,16 +249,15 @@ void push(
             }
             else
             {                                    // Unlikely
-                local_pm.dispx = ux;
-                local_pm.dispy = uy;
-                local_pm.dispz = uz;
+                disp_x.access(s,i) = ux;  //local_pm.dispx = ux;
+                disp_y.access(s,i) = uy;  //local_pm.dispy = uy;
+                disp_z.access(s,i) = uz;  //local_pm.dispz = uz;
 
-                local_pm.i = s*particle_list_t::vector_length + i; //i + itmp; //p_ - p0;
+                //local_pm.i = s*particle_list_t::vector_length + i; //i + itmp; //p_ - p0;
 
                 // Handle particles that cross cells
                 //move_p( position_x, position_y, position_z, cell, _a, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
-                move_p( position_x, position_y, position_z, cell, a0, mpi_rank,
-                    q, local_pm, g, s, i, nx, ny, nz, num_ghosts, boundary );
+                move_p( a0, particles, q, g, s, i, nx, ny, nz, num_ghosts, boundary );
 
                 // TODO: renable this
                 //if ( move_p( p0, local_pm, a0, g, qsp ) ) { // Unlikely
