@@ -37,9 +37,10 @@ class Initializer {
             Parameters::instance().num_particles =  Parameters::instance().NPPC  *  Parameters::instance().num_real_cells;
 
             Parameters::instance().dt = 0.0863562;
-            //Parameters::instance().dt = 0.002;
+            //Parameters::instance().dt = 0.0005;
 
-            Parameters::instance().num_steps = 250;
+            //Parameters::instance().num_steps = 250;
+            Parameters::instance().num_steps = 2;
 
             Parameters::instance().v0 = 0.0866025403784439*4.0;
             real_t gam = 1.0/sqrt(1.0-Parameters::instance().v0*Parameters::instance().v0);

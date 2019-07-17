@@ -218,8 +218,7 @@ int main( int argc, char* argv[] )
             auto _move_p = 
                 KOKKOS_LAMBDA( const int s, const int i ) {
                     while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
-                    //if ( disp_x.access(s,i) > 0 ) {
-                        //printf("(%d,%d): disp_x=%f\n", s, i, disp_x.access(s,i));
+                    //if ( disp_x.access(s,i) != 0 ) {
                         auto weights = particles.slice<Weight>();
                         real_t q = weights.access(s,i)*qsp;
                         move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
@@ -228,8 +227,15 @@ int main( int argc, char* argv[] )
                 };
             Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
                 vec_policy( 0, particles.size() );
-            Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
-            
+            //Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
+
+            for ( int rr = 0; rr < comm_size; ++rr )  {
+                MPI_Barrier( MPI_COMM_WORLD );
+                if ( comm_rank == rr ) {
+                    Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
+                }
+                MPI_Barrier( MPI_COMM_WORLD );
+            }
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
 
@@ -243,9 +249,10 @@ int main( int argc, char* argv[] )
               if ( comm_rank == rr ) {
                 for ( int zz = 0; zz < num_cells; zz++) {
                   RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
-                  if ( iy == 1 && iz == 1 )
+                  if ( iy == 1 && iz == 1 ) {
                     //std::cout << "rank " << comm_rank << ": post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
                     std::cout << ix << " " << accumulators(zz,0,0) << std::endl;
+                  }
                 }
               }
               MPI_Barrier( MPI_COMM_WORLD );
