@@ -208,6 +208,9 @@ int main( int argc, char* argv[] )
             //     auto bin_data = Cabana::sortByKey( keys );
 
             // Move
+            for ( int rr = 0; rr < comm_size; ++rr )  {
+                MPI_Barrier( MPI_COMM_WORLD );
+                if ( comm_rank == rr ) {
             push(
                     particles,
                     interpolators,
@@ -224,11 +227,19 @@ int main( int argc, char* argv[] )
                     num_ghosts,
                     boundary
                 );
+                }
+                MPI_Barrier( MPI_COMM_WORLD );
+            }
 
             // migrate particles across mpi ranks
+            auto particles_exports = particles.slice<Comm_Rank>();
+            particles_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+                MPI_COMM_WORLD, particles_exports );
             Cabana::migrate( *particles_distributor, particles );
+
             // TODO: make 3d
             auto cell = particles.slice<Cell_Index>();
+            auto x_vel = particles.slice<VelocityX>();
             auto disp_x = particles.slice<DispX>();
             auto _move_p =
                 KOKKOS_LAMBDA( const int s, const int i ) {
@@ -236,7 +247,10 @@ int main( int argc, char* argv[] )
                     // TODO: This is dangerous...
                     if ( disp_x.access(s,i) != 0.0 ) {
                         int ii = cell.access(s,i);
-                        std::cout << " calling move_p on recvd " << s << " " << i << " at " << ii << std::endl;
+                        std::cout << "# " << comm_rank << 
+                            " move_p recv: s=" << s << " i=" << i <<
+                            " at " << ii << " disp_x " << disp_x.access(s,i) <<
+                            std::endl;
                         auto weights = particles.slice<Weight>();
                         real_t q = weights.access(s,i)*qsp;
                         move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,

@@ -101,7 +101,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
     //q = qsp * weight.access(s, i);
     bool exported = false; // for particle pass ( return 1; )
 
-    for(int temp = 0;;temp++)
+    for(;;)
     {
         /*
            s_midx = p->dx;
@@ -154,18 +154,14 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
         int ii = cell.access(s, i);
 
-        if ( (s == 0) && (i == 1) )
-        {
-            std::cout << "0 1 has ii " << ii << std::endl;
-            //std::cout << s << " " << i << " has ii " << ii << std::endl;
-        }
-
-        if (ii == 88)
-        {
-            std::cout << "move_p s " << s << " i " << i <<
-                " q " << q*s_dispx <<
-                std::endl;
-        }
+        //if (ii == (nx+num_ghosts*2)*4+nx+num_ghosts-1 )
+        //{
+        //    if ( comm_rank == comm_size-1 ) {
+        //        std::cout << " move_p: s " << s << " i " << i <<
+        //            " disp_x " << s_dispx <<
+        //            std::endl;
+        //    }
+        //}
 
         //a = (float *)(a0 + ii);
         _asa(ii,accumulator_var::jx, 0) += q*s_dispx;
@@ -198,6 +194,15 @@ KOKKOS_INLINE_FUNCTION int move_p(
         // #   undef accumulate_j
 
         // Compute the remaining particle displacment
+        //if (ii == (nx+num_ghosts*2)*4+nx+num_ghosts-1 )
+        //{
+        //    if ( comm_rank == comm_size-1 ) {
+        //        std::cout << " move_p: s " << s << " i " << i <<
+        //            " disp_x(s,i) " <<
+        //            disp_x.access(s,i) <<
+        //            std::endl;
+        //    }
+        //}
         disp_x.access(s,i) -= s_dispx;
         disp_y.access(s,i) -= s_dispy;
         disp_z.access(s,i) -= s_dispz;
@@ -279,8 +284,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
                 if (is_leaving_domain == 0) { // -1 on x face
                     ix = (nx-1) + num_ghosts;
                     mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
-                    //printf("# %d EXPORT (%lu,%lu)->%d\n# axis: %lu, disp_x: %f\n",
-                    //    comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
+                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
+                        comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
                 }
                 else if (is_leaving_domain == 1) { // -1 on y face
                     iy = (ny-1) + num_ghosts;
@@ -291,8 +296,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
                 else if (is_leaving_domain == 3) { // 1 on x face
                     ix = num_ghosts;
                     mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-                    //printf("# %d EXPORT (%lu,%lu)->%d\n# axis: %lu, disp_x: %f\n",
-                    //    comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
+                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
+                        comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
                 }
                 else if (is_leaving_domain == 4) { // 1 on y face
                     iy = num_ghosts;

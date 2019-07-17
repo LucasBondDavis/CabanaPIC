@@ -220,13 +220,13 @@ void push(
                     //std::cout << "0 1 has ii " << ii << std::endl;
                     //std::cout << s << " " << i << " has ii " << ii << std::endl;
                 //}
-                if (ii == 88)
-                {
-                    std::cout << "push s " << s << " i " << i <<
-                        //" ux " << ux << " vel_x " << velocity_x.access(s,i) <<
-                        " q " << q*ux <<
-                        std::endl;
-                }
+                //if (ii == (nx+num_ghosts*2)*4+nx+num_ghosts-1 )
+                //{
+                //    std::cout << "push s " << s << " i " << i <<
+                //        //" ux " << ux << " vel_x " << velocity_x.access(s,i) <<
+                //        " q " << q*ux <<
+                //        std::endl;
+                //}
 
                 accumulators_scatter_access(ii, accumulator_var::jx, 0) += q*ux;
                 accumulators_scatter_access(ii, accumulator_var::jx, 1) += 0.0;
@@ -270,8 +270,15 @@ void push(
 
                 // Handle particles that cross cells
                 //move_p( position_x, position_y, position_z, cell, _a, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
+
                 move_p( a0, particles, q, g, s, i, nx, ny, nz, num_ghosts, boundary );
 
+                if ( s == 0 && i == 1 ) {
+                    std::cout << "# push: s=" << s << " i=" << i <<
+                        " disp_x " << disp_x.access(s,i) <<
+                        " dest " << mpi_rank.access(s,i) << 
+                        std::endl;
+                }
                 // TODO: renable this
                 //if ( move_p( p0, local_pm, a0, g, qsp ) ) { // Unlikely
                 //if ( move_p( particles, local_pm, a0, g, qsp, s, i ) ) { // Unlikely
