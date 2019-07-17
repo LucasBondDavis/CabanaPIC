@@ -215,6 +215,19 @@ void push(
                 //_a(ii,2) = 0;
                 //_a(ii,3) = 0;
 
+                //if ( (s == 0) && (i == 1) )
+                //{
+                    //std::cout << "0 1 has ii " << ii << std::endl;
+                    //std::cout << s << " " << i << " has ii " << ii << std::endl;
+                //}
+                if (ii == 88)
+                {
+                    std::cout << "push s " << s << " i " << i <<
+                        //" ux " << ux << " vel_x " << velocity_x.access(s,i) <<
+                        " q " << q*ux <<
+                        std::endl;
+                }
+
                 accumulators_scatter_access(ii, accumulator_var::jx, 0) += q*ux;
                 accumulators_scatter_access(ii, accumulator_var::jx, 1) += 0.0;
                 accumulators_scatter_access(ii, accumulator_var::jx, 2) += 0.0;

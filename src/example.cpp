@@ -25,6 +25,20 @@
 
 #include "visualization.h"
 
+
+const int num_com_round = 3;
+void boundary_p(particle_list_t& particles_in)
+{
+    for (int i = 0; i < num_com_round; i++)
+    {
+        // Send
+
+        // Recv
+
+        // Call move_p on new particles (implies current accumulation)
+    }
+}
+
 //---------------------------------------------------------------------------//
 // Main.
 //---------------------------------------------------------------------------//
@@ -49,7 +63,7 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 400;
+        size_t npc = 4;
         Initializer::initialize_params(32, npc);
 
         // Cache some values locally for printing
@@ -104,7 +118,7 @@ int main( int argc, char* argv[] )
         }
         MPI_Barrier( MPI_COMM_WORLD );
 */
-        
+
         // Initialize particles.
         Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
 
@@ -158,7 +172,7 @@ int main( int argc, char* argv[] )
             "halo_ids", num_cells );
         // set neighbors for topology
         halo_topology = { comm_rank-1, comm_rank, comm_rank+1 };
-        
+
 
         // simulation loop
 
@@ -214,11 +228,15 @@ int main( int argc, char* argv[] )
             // migrate particles across mpi ranks
             Cabana::migrate( *particles_distributor, particles );
             // TODO: make 3d
+            auto cell = particles.slice<Cell_Index>();
             auto disp_x = particles.slice<DispX>();
-            auto _move_p = 
+            auto _move_p =
                 KOKKOS_LAMBDA( const int s, const int i ) {
-                    while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
-                    //if ( disp_x.access(s,i) != 0 ) {
+                    //while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
+                    // TODO: This is dangerous...
+                    if ( disp_x.access(s,i) != 0.0 ) {
+                        int ii = cell.access(s,i);
+                        std::cout << " calling move_p on recvd " << s << " " << i << " at " << ii << std::endl;
                         auto weights = particles.slice<Weight>();
                         real_t q = weights.access(s,i)*qsp;
                         move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
@@ -251,13 +269,15 @@ int main( int argc, char* argv[] )
                   RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
                   if ( iy == 1 && iz == 1 ) {
                     //std::cout << "rank " << comm_rank << ": post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
-                    std::cout << ix << " " << accumulators(zz,0,0) << std::endl;
+                    std::cout << zz << " " << ix << " " << accumulators(zz,0,0) << std::endl;
                   }
                 }
               }
               MPI_Barrier( MPI_COMM_WORLD );
             }
-            // boundary_p(); // Implies Parallel?
+
+            // Pass particles to neighbor ranks
+            //boundary_p();
 
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);

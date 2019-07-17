@@ -154,6 +154,19 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
         int ii = cell.access(s, i);
 
+        if ( (s == 0) && (i == 1) )
+        {
+            std::cout << "0 1 has ii " << ii << std::endl;
+            //std::cout << s << " " << i << " has ii " << ii << std::endl;
+        }
+
+        if (ii == 88)
+        {
+            std::cout << "move_p s " << s << " i " << i <<
+                " q " << q*s_dispx <<
+                std::endl;
+        }
+
         //a = (float *)(a0 + ii);
         _asa(ii,accumulator_var::jx, 0) += q*s_dispx;
         _asa(ii,accumulator_var::jx, 1) += 0.0;

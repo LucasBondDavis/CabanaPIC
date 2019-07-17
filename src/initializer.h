@@ -129,7 +129,7 @@ class Initializer {
                     // Initialize velocity.
                     real_t na = 0.01*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*comm_size)));
                     //printf("(%d, %d), x:%lf, v:%lf\n", s, i, x, na);
-                    
+
                     if (pi2%2 == 1) { sign = -1; }
                     real_t gam = 1.0/sqrt(1.0-v0*v0);
                     velocity_x.access(s,i) = sign * v0 *gam*(1.0+na); //0.1;
