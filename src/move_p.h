@@ -154,15 +154,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
         int ii = cell.access(s, i);
 
-        //if (ii == (nx+num_ghosts*2)*4+nx+num_ghosts-1 )
-        //{
-        //    if ( comm_rank == comm_size-1 ) {
-        //        std::cout << " move_p: s " << s << " i " << i <<
-        //            " disp_x " << s_dispx <<
-        //            std::endl;
-        //    }
-        //}
-
         //a = (float *)(a0 + ii);
         _asa(ii,accumulator_var::jx, 0) += q*s_dispx;
         _asa(ii,accumulator_var::jx, 1) += 0.0;
@@ -284,8 +275,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
                 if (is_leaving_domain == 0) { // -1 on x face
                     ix = (nx-1) + num_ghosts;
                     mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
-                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
-                        comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
+                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
+                    //    comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
                 }
                 else if (is_leaving_domain == 1) { // -1 on y face
                     iy = (ny-1) + num_ghosts;
@@ -296,8 +287,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
                 else if (is_leaving_domain == 3) { // 1 on x face
                     ix = num_ghosts;
                     mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
-                        comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
+                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu, disp_x: %f\n",
+                    //    comm_rank, s, i, mpi_rank.access(s,i), axis, disp_x.access(s,i));
                 }
                 else if (is_leaving_domain == 4) { // 1 on y face
                     iy = num_ghosts;

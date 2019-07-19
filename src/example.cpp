@@ -63,7 +63,7 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 4;
+        size_t npc = 400;
         Initializer::initialize_params(32, npc);
 
         // Cache some values locally for printing
@@ -103,21 +103,6 @@ int main( int argc, char* argv[] )
         particle_list_t particles( num_particles );
         //logger << "size " << particles.size() << std::endl;
         //logger << "numSoA " << particles.numSoA() << std::endl;
-
-/*
-        int rank = -1;
-        MPI_Comm_rank( MPI_COMM_WORLD, &rank );
-        if ( 0 == rank ) {
-            printf("RANK 0\n");
-            Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
-        }
-        MPI_Barrier( MPI_COMM_WORLD );
-        if ( 1 == rank ) {
-            printf("RANK 1\n");
-            Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
-        }
-        MPI_Barrier( MPI_COMM_WORLD );
-*/
 
         // Initialize particles.
         Initializer::initialize_particles( particles, nx, ny, nz, dxp, npc, we );
@@ -159,10 +144,10 @@ int main( int argc, char* argv[] )
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
         // create particles distributor
-        std::shared_ptr< Cabana::Distributor<MemorySpace> > particles_distributor;
-        auto particles_exports = particles.slice<Comm_Rank>();
-        particles_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-            MPI_COMM_WORLD, particles_exports );
+        std::shared_ptr< Cabana::Distributor<MemorySpace> > particle_distributor;
+        auto particle_exports = particles.slice<Comm_Rank>();
+        particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+            MPI_COMM_WORLD, particle_exports );
         // create pointer and plan for halo
         std::shared_ptr< Cabana::Halo<MemorySpace> > halo;
         std::vector<int> halo_topology( 3 ); // in 1d? include ghosts
@@ -208,9 +193,6 @@ int main( int argc, char* argv[] )
             //     auto bin_data = Cabana::sortByKey( keys );
 
             // Move
-            for ( int rr = 0; rr < comm_size; ++rr )  {
-                MPI_Barrier( MPI_COMM_WORLD );
-                if ( comm_rank == rr ) {
             push(
                     particles,
                     interpolators,
@@ -227,15 +209,12 @@ int main( int argc, char* argv[] )
                     num_ghosts,
                     boundary
                 );
-                }
-                MPI_Barrier( MPI_COMM_WORLD );
-            }
 
             // migrate particles across mpi ranks
-            auto particles_exports = particles.slice<Comm_Rank>();
-            particles_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-                MPI_COMM_WORLD, particles_exports );
-            Cabana::migrate( *particles_distributor, particles );
+            auto particle_exports = particles.slice<Comm_Rank>();
+            particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+                MPI_COMM_WORLD, particle_exports );
+            Cabana::migrate( *particle_distributor, particles );
 
             // TODO: make 3d
             auto cell = particles.slice<Cell_Index>();
@@ -247,10 +226,6 @@ int main( int argc, char* argv[] )
                     // TODO: This is dangerous...
                     if ( disp_x.access(s,i) != 0.0 ) {
                         int ii = cell.access(s,i);
-                        std::cout << "# " << comm_rank << 
-                            " move_p recv: s=" << s << " i=" << i <<
-                            " at " << ii << " disp_x " << disp_x.access(s,i) <<
-                            std::endl;
                         auto weights = particles.slice<Weight>();
                         real_t q = weights.access(s,i)*qsp;
                         move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
@@ -259,36 +234,27 @@ int main( int argc, char* argv[] )
                 };
             Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
                 vec_policy( 0, particles.size() );
-            //Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
-
-            for ( int rr = 0; rr < comm_size; ++rr )  {
-                MPI_Barrier( MPI_COMM_WORLD );
-                if ( comm_rank == rr ) {
-                    Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
-                }
-                MPI_Barrier( MPI_COMM_WORLD );
-            }
+            Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
 
             // Only reset the data if these two are not the same arrays
             scatter_add.reset_except(accumulators);
 
-            int ix, iy, iz;
-            MPI_Barrier( MPI_COMM_WORLD );
-            for ( int rr = 0; rr < comm_size; ++rr ) {
-              MPI_Barrier( MPI_COMM_WORLD );
-              if ( comm_rank == rr ) {
-                for ( int zz = 0; zz < num_cells; zz++) {
-                  RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
-                  if ( iy == 1 && iz == 1 ) {
-                    //std::cout << "rank " << comm_rank << ": post accum " << zz << " = " << accumulators(zz, 0, 0) << std::endl;
-                    std::cout << zz << " " << ix << " " << accumulators(zz,0,0) << std::endl;
-                  }
-                }
-              }
-              MPI_Barrier( MPI_COMM_WORLD );
-            }
+            //int ix, iy, iz;
+            //MPI_Barrier( MPI_COMM_WORLD );
+            //for ( int rr = 0; rr < comm_size; ++rr ) {
+            //  MPI_Barrier( MPI_COMM_WORLD );
+            //  if ( comm_rank == rr ) {
+            //    for ( int zz = 0; zz < num_cells; zz++) {
+            //      RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
+            //      if ( iy == 1 && iz == 1 ) {
+            //        std::cout << zz << " " << ix << " " << accumulators(zz,0,0) << std::endl;
+            //      }
+            //    }
+            //  }
+            //  MPI_Barrier( MPI_COMM_WORLD );
+            //}
 
             // Pass particles to neighbor ranks
             //boundary_p();
