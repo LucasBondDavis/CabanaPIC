@@ -63,8 +63,8 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 4;
-        Initializer::initialize_params(32, npc);
+        size_t npc = 4000;
+        Initializer::initialize_params(64, npc);
 
         // Cache some values locally for printing
         const size_t nx = Parameters::instance().nx;
@@ -162,7 +162,6 @@ int main( int argc, char* argv[] )
         // simulation loop
 
         const size_t num_steps = Parameters::instance().num_steps;
-/*
         printf( "#***********************************************\n" );
         printf( "#num_step = %ld\n" , num_steps );
         printf( "#Lx/de = %f\n" , Lx );
@@ -179,7 +178,6 @@ int main( int argc, char* argv[] )
         printf( "#dz/de = %f\n" , Lz/(nz) );
         printf( "#n0 = %f\n" , n0 );
         printf( "#***********************************************\n" );
-*/
 
         for (size_t step = 0; step < num_steps; step++)
         {
@@ -193,9 +191,6 @@ int main( int argc, char* argv[] )
             //     auto bin_data = Cabana::sortByKey( keys );
 
             // Move
-            for ( int r=0; r<comm_size; ++r ) {
-                MPI_Barrier( MPI_COMM_WORLD );
-                if ( r==comm_rank ) {
             push(
                     particles,
                     interpolators,
@@ -212,17 +207,12 @@ int main( int argc, char* argv[] )
                     num_ghosts,
                     boundary
                 );
-                }
-                MPI_Barrier( MPI_COMM_WORLD );
-            }
-            printf("\n");
 
             // migrate particles across mpi ranks
             auto particle_exports = particles.slice<Comm_Rank>();
             particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
                 MPI_COMM_WORLD, particle_exports );
             Cabana::migrate( *particle_distributor, particles );
-            printf("\n");
 
             // TODO: make 3d
             auto cell = particles.slice<Cell_Index>();

@@ -6,6 +6,16 @@
 
 class Initializer {
     public:
+  // Compute the Courant length on a regular mesh
+  static real_t courant_length( real_t lx, real_t ly, real_t lz,
+				size_t nx, size_t ny, size_t nz ) {
+    real_t w0, w1 = 0;
+    if( nx>1 ) w0 = nx/lx, w1 += w0*w0;
+    if( ny>1 ) w0 = ny/ly, w1 += w0*w0;
+    if( nz>1 ) w0 = nz/lz, w1 += w0*w0;
+    return sqrt(1/w1);
+  }
+  
   static void initialize_params(size_t _nc = 16, size_t _nppc = 16)
         {
             //logger << "Importing Default Input Deck" << std::endl;
@@ -54,6 +64,8 @@ class Initializer {
             Parameters::instance().dx = Parameters::instance().len_x / Parameters::instance().nx;
             Parameters::instance().dy = Parameters::instance().len_y / Parameters::instance().ny;
             Parameters::instance().dz = Parameters::instance().len_z / Parameters::instance().nz;
+
+            Parameters::instance().dt = 0.99*courant_length(Parameters::instance().len_x,Parameters::instance().len_y,Parameters::instance().len_z,Parameters::instance().nx,Parameters::instance().ny,Parameters::instance().nz)/Parameters::instance().c;
 
             Parameters::instance().print_run_details();
         }
@@ -125,8 +137,7 @@ class Initializer {
 
                     cell.access(s,i) = pre_ghost + (nx+2)*(ny+2) + (nx+2) ; //13; //allow_for_ghosts(pre_ghost);
                     // Initialize velocity.
-                    real_t na = 0.01*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*comm_size)));
-                    //printf("(%d, %d), x:%lf, v:%lf\n", s, i, x, na);
+                    real_t na = 0.0001*sin(2.0*3.1415926*(((x+1.0)/2.0+pre_ghost+mpi_offset)/(nx*comm_size)));
 
                     if (pi2%2 == 1) { sign = -1; }
                     real_t gam = 1.0/sqrt(1.0-v0*v0);
