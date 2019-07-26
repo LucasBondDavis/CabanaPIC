@@ -48,7 +48,7 @@ class Initializer {
 
             Parameters::instance().dt = 0.0863562;
 
-            Parameters::instance().num_steps = 2500;
+            Parameters::instance().num_steps = 2;
 
             Parameters::instance().v0 = 0.0866025403784439*4.0;
             real_t gam = 1.0/sqrt(1.0-Parameters::instance().v0*Parameters::instance().v0);
@@ -89,10 +89,6 @@ class Initializer {
             auto velocity_x = particles.slice<VelocityX>();
             auto velocity_y = particles.slice<VelocityY>();
             auto velocity_z = particles.slice<VelocityZ>();
-
-            auto disp_x = particles.slice<DispX>();
-            auto disp_y = particles.slice<DispY>();
-            auto disp_z = particles.slice<DispZ>();
 
             auto weight = particles.slice<Weight>();
             auto cell = particles.slice<Cell_Index>();

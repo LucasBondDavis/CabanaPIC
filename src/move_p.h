@@ -56,6 +56,7 @@ template<typename T>
 KOKKOS_INLINE_FUNCTION int move_p(
         T& a0, // TODO: does this need to be const
         particle_list_t particles,
+        particle_mover_t pm,
         real_t q,
         const grid_t* g,
         const size_t s,
@@ -81,10 +82,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
     auto velocity_y = particles.slice<VelocityY>();
     auto velocity_z = particles.slice<VelocityZ>();
 
-    auto disp_x = particles.slice<DispX>();
-    auto disp_y = particles.slice<DispY>();
-    auto disp_z = particles.slice<DispZ>();
-
     auto weight = particles.slice<Weight>();
     auto cell = particles.slice<Cell_Index>();
     auto mpi_rank = particles.slice<Comm_Rank>();
@@ -99,7 +96,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
     /* //int index = pm->i; */
 
     //q = qsp * weight.access(s, i);
-    bool exported = false; // for particle pass ( return 1; )
 
     for(;;)
     {
@@ -113,9 +109,9 @@ KOKKOS_INLINE_FUNCTION int move_p(
         float s_midy = position_y.access(s, i);
         float s_midz = position_z.access(s, i);
 
-        float s_dispx = disp_x.access(s,i);
-        float s_dispy = disp_y.access(s,i);
-        float s_dispz = disp_z.access(s,i);
+        float s_dispx = pm.dispx;
+        float s_dispy = pm.dispy;
+        float s_dispz = pm.dispz;
 
         s_dir[0] = (s_dispx>0) ? 1 : -1;
         s_dir[1] = (s_dispy>0) ? 1 : -1;
@@ -194,9 +190,9 @@ KOKKOS_INLINE_FUNCTION int move_p(
         //            std::endl;
         //    }
         //}
-        disp_x.access(s,i) -= s_dispx;
-        disp_y.access(s,i) -= s_dispy;
-        disp_z.access(s,i) -= s_dispz;
+        pm.dispx -= s_dispx;
+        pm.dispy -= s_dispy;
+        pm.dispz -= s_dispz;
 
         //printf("%d %d, %d, %f %f",s, i, ii, position_x.access(s, i),position_x.access(s, i));
         // Compute the new particle offset
@@ -270,13 +266,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
                 /* ix = ii-12; */
                 /* iy = 1; */
                 /* iz = 1; */
-                exported = true; // for return 1 later
+                // TODO boundaries change if we allow particles into ghost cells
 
                 if (is_leaving_domain == 0) { // -1 on x face
-                    ix = (nx-1) + num_ghosts;
+                    //ix = (nx-1) + num_ghosts; // happens after pass now
                     mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
-                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
+                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
+                        comm_rank, s, i, mpi_rank.access(s,i), axis);
                 }
                 else if (is_leaving_domain == 1) { // -1 on y face
                     iy = (ny-1) + num_ghosts;
@@ -285,10 +281,10 @@ KOKKOS_INLINE_FUNCTION int move_p(
                     iz = (nz-1) + num_ghosts;
                 }
                 else if (is_leaving_domain == 3) { // 1 on x face
-                    ix = num_ghosts;
+                    //ix = num_ghosts;
                     mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
+                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
+                        comm_rank, s, i, mpi_rank.access(s,i), axis);
                 }
                 else if (is_leaving_domain == 4) { // 1 on y face
                     iy = num_ghosts;
@@ -375,8 +371,24 @@ KOKKOS_INLINE_FUNCTION int move_p(
         if (axis == 1) position_y.access(s, i) = -v0;
         if (axis == 2) position_z.access(s, i) = -v0;
 
-        if ( exported ) return 1;
-
+    }
+    
+    // Neighbor array would handle this better
+    int ii = cell.access(s,i);
+    int ix, iy, iz;
+    RANK_TO_INDEX(ii, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
+    if ( iy == 1 && iz == 1 ) { // NOTE: conditionals could be optimized
+        //printf("(%lu,%lu) ix: %d\n", s, i, ix);
+        if ( ix == 0 ) {
+            ix == (nx-1) + num_ghosts;
+            int updated_ii = ix+(nx+2)*(ny+2) + (nx+2);
+            cell.access(s, i) = updated_ii;
+        }
+        if ( ix == nx-1+2*num_ghosts ) {
+            ix == num_ghosts;
+            int updated_ii = ix+(nx+2)*(ny+2) + (nx+2);
+            cell.access(s, i) = updated_ii;
+        }
     }
 
     return 0; // Return "mover not in use"

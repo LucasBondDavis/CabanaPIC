@@ -63,8 +63,8 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 4000;
-        Initializer::initialize_params(64, npc);
+        size_t npc = 4;
+        Initializer::initialize_params(16, npc);
 
         // Cache some values locally for printing
         const size_t nx = Parameters::instance().nx;
@@ -116,12 +116,18 @@ int main( int argc, char* argv[] )
         // Allocate Cabana Data
         interpolator_array_t interpolators(num_cells);
 
-        accumulator_array_t accumulators("Accumulator View", num_cells);
-
+        accumulator_array_t accumulators("Accumulator View", 2048);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
-            //<Kokkos::Experimental::ScatterSum,
-            //KOKKOS_SCATTER_DUPLICATED,
-            //KOKKOS_SCATTER_ATOMIC>(accumulators);
+        // unmanaged aosoa for halo passing accumulator
+        using accDataTypes = Cabana::MemberTypes<float[3][4]>;
+        using acc_AoSoA_t = Cabana::AoSoA<
+            accDataTypes,
+            MemorySpace,
+            2048,
+            Kokkos::MemoryUnmanaged
+            >;
+        auto ptr = reinterpret_cast<typename acc_AoSoA_t::soa_type*>(accumulators.data());
+        acc_AoSoA_t acc_aosoa( ptr, 1, num_cells );
 
         field_array_t fields(num_cells);
 
@@ -148,36 +154,51 @@ int main( int argc, char* argv[] )
         auto particle_exports = particles.slice<Comm_Rank>();
         particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
             MPI_COMM_WORLD, particle_exports );
-        // create pointer and plan for halo
-        std::shared_ptr< Cabana::Halo<MemorySpace> > halo;
-        std::vector<int> halo_topology( 3 ); // in 1d? include ghosts
-        Kokkos::View<int*,MemorySpace> halo_exports(
-            "halo_exports", num_cells );
-        Kokkos::View<int*,MemorySpace> halo_ids(
-            "halo_ids", num_cells );
-        // set neighbors for topology
-        halo_topology = { comm_rank-1, comm_rank, comm_rank+1 };
 
+        // create pointer and plan for halo
+        std::shared_ptr< Cabana::Halo<MemorySpace> > accumulator_halo;
+        // TODO: *2 works for 1d only
+        Kokkos::View<int*,MemorySpace> acc_exports(
+            "acc_exports",  num_ghosts*2 );
+        Kokkos::View<int*,MemorySpace> acc_ids(
+            "acc_ids", num_ghosts*2 );
+        // TODO move data to device (loop or copy)
+        int gn1 = VOXEL( 0, ny, nz, nx,ny,nz,num_ghosts );
+        int gn2 = VOXEL( nx + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+        int previous_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
+        int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
+        std::vector<int> ghost_neighbors = { gn1, gn2 };
+        for ( int i = 0; i < acc_ids.size(); ++i ) {
+            acc_ids(i) = ghost_neighbors[i];
+        }
+        // seems non trivial to set in a loop
+        acc_exports(0) = previous_rank;
+        acc_exports(1) = next_rank;
+        // set neighbors for topology 
+        std::vector<int> halo_topology = { previous_rank, comm_rank, next_rank };
+        std::sort( halo_topology.begin(), halo_topology.end() );
+        auto unique_end = std::unique( halo_topology.begin(), halo_topology.end() );
+        halo_topology.resize( std::distance(halo_topology.begin(), unique_end) );
 
         // simulation loop
 
         const size_t num_steps = Parameters::instance().num_steps;
-        printf( "#***********************************************\n" );
-        printf( "#num_step = %ld\n" , num_steps );
-        printf( "#Lx/de = %f\n" , Lx );
-        printf( "#Ly/de = %f\n" , Ly );
-        printf( "#Lz/de = %f\n" , Lz );
-        printf( "#nx = %ld\n" , nx );
-        printf( "#ny = %ld\n" , ny );
-        printf( "#nz = %ld\n" , nz );
-        printf( "#nppc = %lf\n" , nppc );
-        printf( "#Ne = %lf\n" , Ne );
-        printf( "#dt*wpe = %f\n" , dt );
-        printf( "#dx/de = %f\n" , Lx/(nx) );
-        printf( "#dy/de = %f\n" , Ly/(ny) );
-        printf( "#dz/de = %f\n" , Lz/(nz) );
-        printf( "#n0 = %f\n" , n0 );
-        printf( "#***********************************************\n" );
+        //printf( "#***********************************************\n" );
+        //printf( "#num_step = %ld\n" , num_steps );
+        //printf( "#Lx/de = %f\n" , Lx );
+        //printf( "#Ly/de = %f\n" , Ly );
+        //printf( "#Lz/de = %f\n" , Lz );
+        //printf( "#nx = %ld\n" , nx );
+        //printf( "#ny = %ld\n" , ny );
+        //printf( "#nz = %ld\n" , nz );
+        //printf( "#nppc = %lf\n" , nppc );
+        //printf( "#Ne = %lf\n" , Ne );
+        //printf( "#dt*wpe = %f\n" , dt );
+        //printf( "#dx/de = %f\n" , Lx/(nx) );
+        //printf( "#dy/de = %f\n" , Ly/(ny) );
+        //printf( "#dz/de = %f\n" , Lz/(nz) );
+        //printf( "#n0 = %f\n" , n0 );
+        //printf( "#***********************************************\n" );
 
         for (size_t step = 0; step < num_steps; step++)
         {
@@ -214,49 +235,62 @@ int main( int argc, char* argv[] )
                 MPI_COMM_WORLD, particle_exports );
             Cabana::migrate( *particle_distributor, particles );
 
-            // TODO: make 3d
-            auto cell = particles.slice<Cell_Index>();
-            auto x_vel = particles.slice<VelocityX>();
-            auto disp_x = particles.slice<DispX>();
-            auto _move_p =
-                KOKKOS_LAMBDA( const int s, const int i ) {
-                    //while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
-                    // TODO: This is dangerous...
-                    if ( disp_x.access(s,i) != 0.0 ) {
-                        int ii = cell.access(s,i);
-                        auto weights = particles.slice<Weight>();
-                        real_t q = weights.access(s,i)*qsp;
-                        move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
-                                num_ghosts, boundary );
-                    }
-                };
-            Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
-                vec_policy( 0, particles.size() );
-            Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
+            // NOTE: (deprecated) move particles to ghost cells instead of this
+            //auto cell = particles.slice<Cell_Index>();
+            //auto x_vel = particles.slice<VelocityX>();
+            //auto disp_x = particles.slice<DispX>();
+            //auto _move_p =
+            //    KOKKOS_LAMBDA( const int s, const int i ) {
+            //        //while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
+            //        // TODO: This is dangerous...
+            //        if ( disp_x.access(s,i) != 0.0 ) {
+            //            int ii = cell.access(s,i);
+            //            auto weights = particles.slice<Weight>();
+            //            real_t q = weights.access(s,i)*qsp;
+            //            move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
+            //                    num_ghosts, boundary );
+            //        }
+            //    };
+            //Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
+            //    vec_policy( 0, particles.size() );
+            //Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
 
             Kokkos::Experimental::contribute(accumulators, scatter_add);
 
             // Only reset the data if these two are not the same arrays
             scatter_add.reset_except(accumulators);
 
-            //int ix, iy, iz;
-            //MPI_Barrier( MPI_COMM_WORLD );
-            //for ( int rr = 0; rr < comm_size; ++rr ) {
-            //  MPI_Barrier( MPI_COMM_WORLD );
-            //  if ( comm_rank == rr ) {
-            //    for ( int zz = 0; zz < num_cells; zz++) {
-            //      RANK_TO_INDEX(zz, ix, iy, iz, nx+2, ny+2);
-            //      if ( iy == 1 && iz == 1 ) {
-            //        std::cout << zz << " " << ix << " " << accumulators(zz,0,0) << std::endl;
-            //      }
-            //    }
-            //  }
-            //  MPI_Barrier( MPI_COMM_WORLD );
-            //}
-
-            // Pass particles to neighbor ranks
             //boundary_p();
 
+            // Ghosted cells move accumulators
+            accumulator_halo = std::make_shared< Cabana::Halo<MemorySpace> >(
+                MPI_COMM_WORLD, num_cells-acc_ids.size(), acc_ids, acc_exports, halo_topology );
+            // NOTE: guaranteed to swap local with remote
+            gather( *accumulator_halo, acc_aosoa );
+            int b_cell1 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+            int b_cell2 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+            // TODO: loop over the third index
+            accumulators( b_cell1, accumulator_var::jx, 0 ) += 
+                accumulators( ghost_neighbors[0], accumulator_var::jx, 0 );
+            accumulators( ghost_neighbors[0], accumulator_var::jx, 0 ) = 0;
+            accumulators( b_cell2, accumulator_var::jx, 0 ) += 
+                accumulators( ghost_neighbors[1], accumulator_var::jx, 0 );
+            accumulators( ghost_neighbors[1], accumulator_var::jx, 0 ) = 0;            
+
+            int tx, ty, tz;
+            MPI_Barrier( MPI_COMM_WORLD );
+            for ( int rr = 0; rr < comm_size; ++rr ) {
+              MPI_Barrier( MPI_COMM_WORLD );
+              if ( comm_rank == rr ) {
+                for ( int zz = 0; zz < num_cells; zz++) {
+                  RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
+                  if ( ty == 1 && tz == 1 ) {
+                    std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
+                  }
+                }
+              }
+              MPI_Barrier( MPI_COMM_WORLD );
+            }
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
 
@@ -269,8 +303,6 @@ int main( int argc, char* argv[] )
 
             //     // Half advance the magnetic field from B_{1/2} to B_1
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
-
-            //Cabana::gather( *halo, fields ); // TODO: I think this is the basic idea to gather ghosts
 
             //     // Print particles.
             //     print_particles( particles );
