@@ -267,8 +267,8 @@ int main( int argc, char* argv[] )
                 MPI_COMM_WORLD, num_cells-acc_ids.size(), acc_ids, acc_exports, halo_topology );
             // NOTE: guaranteed to swap local with remote
             gather( *accumulator_halo, acc_aosoa );
-            int b_cell1 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-            int b_cell2 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+            int b_cell1 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+            int b_cell2 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
             // TODO: loop over the third index
             accumulators( b_cell1, accumulator_var::jx, 0 ) += 
                 accumulators( ghost_neighbors[0], accumulator_var::jx, 0 );
