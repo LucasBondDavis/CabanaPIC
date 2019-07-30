@@ -92,12 +92,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
     real_t s_dir[3];
     real_t v0, v1, v2, v3; //, v4, v5;
     size_t axis, face;
+    size_t ix, iy, iz;
     /* //particle_t* p = p0 + pm->i; */
     /* //int index = pm->i; */
 
     //q = qsp * weight.access(s, i);
 
-    for(;;)
+    for(;;) // FIXME should be inifinite
     {
         /*
            s_midx = p->dx;
@@ -228,7 +229,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
         face = axis;
         if( v0>0 ) face += 3;
 
-        size_t ix, iy, iz;
         //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
         ix = ii-((nx+2)*(ny+2)+(nx+2)); //ii-12;
         iy = 1;
@@ -241,92 +241,90 @@ KOKKOS_INLINE_FUNCTION int move_p(
         if (face == 4) { iy++; }
         if (face == 5) { iz++; }
 
-        int is_leaving_domain = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
-        if (is_leaving_domain >= 0) {
-            //std::cout << s << ", " << i << " leaving on " << face << std::endl;
-
-                 //std::cout <<
-                 //" x " << position_x.access(s,i) <<
-                 //" y " << position_y.access(s,i) <<
-                 //" z " << position_z.access(s,i) <<
-                 //" cell " << cell.access(s,i) <<
-                 //std::endl;
-            // TODO: make neighbor list for 3d (look at VPIC)
-
-            if ( boundary == Boundary::Periodic)
-            {
-                //std::cout << "face" << std::endl;
-                // If we hit the periodic boundary, try and put the article in the right place
-
-                // TODO: we can do this in 1d just fine
-
-                //siz_t ix, iy, iz;
-
-                //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
-                /* ix = ii-12; */
-                /* iy = 1; */
-                /* iz = 1; */
-                // TODO boundaries change if we allow particles into ghost cells
-
-                if (is_leaving_domain == 0) { // -1 on x face
-                    //ix = (nx-1) + num_ghosts; // happens after pass now
-                    mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
-                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-                        comm_rank, s, i, mpi_rank.access(s,i), axis);
-                }
-                else if (is_leaving_domain == 1) { // -1 on y face
-                    iy = (ny-1) + num_ghosts;
-                }
-                else if (is_leaving_domain == 2) { // -1 on z face
-                    iz = (nz-1) + num_ghosts;
-                }
-                else if (is_leaving_domain == 3) { // 1 on x face
-                    //ix = num_ghosts;
-                    mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-                    printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-                        comm_rank, s, i, mpi_rank.access(s,i), axis);
-                }
-                else if (is_leaving_domain == 4) { // 1 on y face
-                    iy = num_ghosts;
-                }
-                else if (is_leaving_domain == 5) { // 1 on z face
-                    iz = num_ghosts;
-                }
-                /* int updated_ii = VOXEL(ix, iy, iz, */
-                /*         nx, */
-                /*         ny, */
-                /*         nz, */
-                /*         num_ghosts); */
-            }
-
-            /*         if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect) */
-            /*         { */
-            /*             // Hit a reflecting boundary condition.  Reflect the particle */
-            /*             // momentum and remaining displacement and keep moving the */
-            /*             // particle. */
-
-            /*             //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
-
-            /*             //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
-            /*             //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
-            /*             if (axis == 0) */
-            /*             { */
-            /*                 velocity_x.access(s, i) = -1.0f * velocity_x.access(s, i); */
-            /*                 pm.dispx = -1.0f * s_dispx; */
-            /*             } */
-            /*             if (axis == 1) */
-            /*             { */
-            /*                 velocity_y.access(s, i) = -1.0f * velocity_y.access(s, i); */
-            /*                 pm.dispy = -1.0f * s_dispy; */
-            /*             } */
-            /*             if (axis == 2) */
-            /*             { */
-            /*                 velocity_z.access(s, i) = -1.0f * velocity_z.access(s, i); */
-            /*                 pm.dispz = -1.0f * s_dispz; */
-            /*             } */
-            /*             continue; */
-            /*         } */
-        }
+//        int is_leaving_domain = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
+//        if (is_leaving_domain >= 0) {
+//            //std::cout << s << ", " << i << " leaving on " << face << std::endl;
+//
+//                 //std::cout <<
+//                 //" x " << position_x.access(s,i) <<
+//                 //" y " << position_y.access(s,i) <<
+//                 //" z " << position_z.access(s,i) <<
+//                 //" cell " << cell.access(s,i) <<
+//                 //std::endl;
+//            // TODO: make neighbor list for 3d (look at VPIC)
+//
+//            if ( boundary == Boundary::Periodic)
+//            {
+//                //std::cout << "face" << std::endl;
+//                // If we hit the periodic boundary, try and put the article in the right place
+//
+//                // TODO: we can do this in 1d just fine
+//
+//                //siz_t ix, iy, iz;
+//
+//                //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
+//                /* ix = ii-12; */
+//                /* iy = 1; */
+//                /* iz = 1; */
+//                // TODO boundaries change if we allow particles into ghost cells
+//
+//                if (is_leaving_domain == 0) { // -1 on x face
+//                    //ix = (nx-1) + num_ghosts; // happens after pass now
+//                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
+//                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
+//                }
+//                else if (is_leaving_domain == 1) { // -1 on y face
+//                    iy = (ny-1) + num_ghosts;
+//                }
+//                else if (is_leaving_domain == 2) { // -1 on z face
+//                    iz = (nz-1) + num_ghosts;
+//                }
+//                else if (is_leaving_domain == 3) { // 1 on x face
+//                    //ix = num_ghosts;
+//                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
+//                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
+//                }
+//                else if (is_leaving_domain == 4) { // 1 on y face
+//                    iy = num_ghosts;
+//                }
+//                else if (is_leaving_domain == 5) { // 1 on z face
+//                    iz = num_ghosts;
+//                }
+//                /* int updated_ii = VOXEL(ix, iy, iz, */
+//                /*         nx, */
+//                /*         ny, */
+//                /*         nz, */
+//                /*         num_ghosts); */
+//            }
+//
+//            /*         if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect) */
+//            /*         { */
+//            /*             // Hit a reflecting boundary condition.  Reflect the particle */
+//            /*             // momentum and remaining displacement and keep moving the */
+//            /*             // particle. */
+//
+//            /*             //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
+//
+//            /*             //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
+//            /*             //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
+//            /*             if (axis == 0) */
+//            /*             { */
+//            /*                 velocity_x.access(s, i) = -1.0f * velocity_x.access(s, i); */
+//            /*                 pm.dispx = -1.0f * s_dispx; */
+//            /*             } */
+//            /*             if (axis == 1) */
+//            /*             { */
+//            /*                 velocity_y.access(s, i) = -1.0f * velocity_y.access(s, i); */
+//            /*                 pm.dispy = -1.0f * s_dispy; */
+//            /*             } */
+//            /*             if (axis == 2) */
+//            /*             { */
+//            /*                 velocity_z.access(s, i) = -1.0f * velocity_z.access(s, i); */
+//            /*                 pm.dispz = -1.0f * s_dispz; */
+//            /*             } */
+//            /*             continue; */
+//            /*         } */
+//        }
 
         /*     // TODO: this nieghbor stuff can be removed by going to more simple */
         /*     // boundaries */
@@ -375,20 +373,19 @@ KOKKOS_INLINE_FUNCTION int move_p(
     
     // Neighbor array would handle this better
     int ii = cell.access(s,i);
-    int ix, iy, iz;
-    RANK_TO_INDEX(ii, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
-    if ( iy == 1 && iz == 1 ) { // NOTE: conditionals could be optimized
-        //printf("(%lu,%lu) ix: %d\n", s, i, ix);
-        if ( ix == 0 ) {
-            ix == (nx-1) + num_ghosts;
-            int updated_ii = ix+(nx+2)*(ny+2) + (nx+2);
-            cell.access(s, i) = updated_ii;
-        }
-        if ( ix == nx-1+2*num_ghosts ) {
-            ix == num_ghosts;
-            int updated_ii = ix+(nx+2)*(ny+2) + (nx+2);
-            cell.access(s, i) = updated_ii;
-        }
+    int exit_face = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
+    // TODO: currently assumes periodic boundary
+    if ( exit_face == 0 ) {
+        ix = (nx-1) + num_ghosts;
+        int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
+        cell.access(s, i) = updated_ii;
+        mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
+    }
+    else if ( exit_face == 3 ) {
+        ix = num_ghosts;
+        int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
+        cell.access(s, i) = updated_ii;
+        mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
     }
 
     return 0; // Return "mover not in use"

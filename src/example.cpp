@@ -63,8 +63,8 @@ int main( int argc, char* argv[] )
         // Initialize input deck params.
 
         // num_cells (without ghosts), num_particles_per_cell
-        size_t npc = 4;
-        Initializer::initialize_params(16, npc);
+        size_t npc = 4000;
+        Initializer::initialize_params(32, npc);
 
         // Cache some values locally for printing
         const size_t nx = Parameters::instance().nx;
@@ -73,6 +73,12 @@ int main( int argc, char* argv[] )
         const size_t num_ghosts = Parameters::instance().num_ghosts;
         const size_t num_cells = Parameters::instance().num_cells;
         const size_t num_particles = Parameters::instance().num_particles;
+        const int gn1 = VOXEL( 0, ny, nz, nx,ny,nz,num_ghosts );
+        const int gn2 = VOXEL( nx + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+        const int b_cell0 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+        const int b_cell1 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
+        const int previous_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
+        const int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
         real_t dxp = 2.f/(npc);
 
         // Define some consts
@@ -127,7 +133,7 @@ int main( int argc, char* argv[] )
             Kokkos::MemoryUnmanaged
             >;
         auto ptr = reinterpret_cast<typename acc_AoSoA_t::soa_type*>(accumulators.data());
-        acc_AoSoA_t acc_aosoa( ptr, 1, num_cells );
+        acc_AoSoA_t acc_aosoa( ptr, 1, 2048 );
 
         field_array_t fields(num_cells);
 
@@ -163,13 +169,9 @@ int main( int argc, char* argv[] )
         Kokkos::View<int*,MemorySpace> acc_ids(
             "acc_ids", num_ghosts*2 );
         // TODO move data to device (loop or copy)
-        int gn1 = VOXEL( 0, ny, nz, nx,ny,nz,num_ghosts );
-        int gn2 = VOXEL( nx + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-        int previous_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
-        int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
         std::vector<int> ghost_neighbors = { gn1, gn2 };
         for ( int i = 0; i < acc_ids.size(); ++i ) {
-            acc_ids(i) = ghost_neighbors[i];
+            acc_ids(i) = ghost_neighbors[i]*12;
         }
         // seems non trivial to set in a loop
         acc_exports(0) = previous_rank;
@@ -179,6 +181,8 @@ int main( int argc, char* argv[] )
         std::sort( halo_topology.begin(), halo_topology.end() );
         auto unique_end = std::unique( halo_topology.begin(), halo_topology.end() );
         halo_topology.resize( std::distance(halo_topology.begin(), unique_end) );
+        accumulator_halo = std::make_shared< Cabana::Halo<MemorySpace> >(
+            MPI_COMM_WORLD, 2048-acc_ids.size(), acc_ids, acc_exports, halo_topology );
 
         // simulation loop
 
@@ -263,34 +267,26 @@ int main( int argc, char* argv[] )
             //boundary_p();
 
             // Ghosted cells move accumulators
-            accumulator_halo = std::make_shared< Cabana::Halo<MemorySpace> >(
-                MPI_COMM_WORLD, num_cells-acc_ids.size(), acc_ids, acc_exports, halo_topology );
-            // NOTE: guaranteed to swap local with remote
-            gather( *accumulator_halo, acc_aosoa );
-            int b_cell1 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-            int b_cell2 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-            // TODO: loop over the third index
-            accumulators( b_cell1, accumulator_var::jx, 0 ) += 
-                accumulators( ghost_neighbors[0], accumulator_var::jx, 0 );
+
+            auto acc_slice = Cabana::slice<0>( acc_aosoa );
+            Cabana::gather( *accumulator_halo, acc_aosoa );
+
+            // TODO: loop over the third index                                      BAD!
+            accumulators( b_cell0, accumulator_var::jx, 0 ) += acc_slice.access( 0, 2046, 0, 0);
+            accumulators( b_cell1, accumulator_var::jx, 0 ) += acc_slice.access( 0, 2047, 0, 0);
             accumulators( ghost_neighbors[0], accumulator_var::jx, 0 ) = 0;
-            accumulators( b_cell2, accumulator_var::jx, 0 ) += 
-                accumulators( ghost_neighbors[1], accumulator_var::jx, 0 );
-            accumulators( ghost_neighbors[1], accumulator_var::jx, 0 ) = 0;            
+            accumulators( ghost_neighbors[1], accumulator_var::jx, 0 ) = 0;
+            acc_slice.access( 0, 2046, 0, 0) = 0;
+            acc_slice.access( 0, 2047, 0, 0) = 0;
 
             int tx, ty, tz;
-            MPI_Barrier( MPI_COMM_WORLD );
-            for ( int rr = 0; rr < comm_size; ++rr ) {
-              MPI_Barrier( MPI_COMM_WORLD );
-              if ( comm_rank == rr ) {
-                for ( int zz = 0; zz < num_cells; zz++) {
-                  RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
-                  if ( ty == 1 && tz == 1 ) {
-                    std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
-                  }
-                }
+            for ( int zz = 0; zz < num_cells; zz++) {
+              RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
+              if ( ty == 1 && tz == 1 ) {
+                std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
               }
-              MPI_Barrier( MPI_COMM_WORLD );
             }
+
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
 
