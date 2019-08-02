@@ -64,7 +64,7 @@ int main( int argc, char* argv[] )
 
         // num_cells (without ghosts), num_particles_per_cell
         size_t npc = 4000;
-        Initializer::initialize_params(32, npc);
+        Initializer::initialize_params(64, npc);
 
         // Cache some values locally for printing
         const size_t nx = Parameters::instance().nx;
@@ -168,9 +168,9 @@ int main( int argc, char* argv[] )
 
         // create send & recv buffer for accumulator ghosts
         accumulator_aosoa_t accumulator_buffer(
-            "accumulator_buffer", num_ghost_cells*2 );
-        auto accumulator_slice = Cabana::slice<0>( accumulator_buffer );
-
+            "accumulator_buffer", num_ghost_cells );
+        auto accumulator_values = Cabana::slice<0>( accumulator_buffer );
+        auto accumulator_cells = Cabana::slice<1>( accumulator_buffer );
 
         int ix, iy, iz;
         int low_x = num_ghosts;
@@ -186,17 +186,17 @@ int main( int argc, char* argv[] )
             RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
             if ( ix < low_x ) {
                 acc_exports_host(idx) = prev_rank;
-                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_sends_host(idx) = i;
                 ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
             }
             else if ( ix > high_x ) {
                 acc_exports_host(idx) = next_rank;
-                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_sends_host(idx) = i;
                 ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
             }
             else if ( iy < low_y || iy > high_y ||
                       iz < low_z || iz > high_z ) {
-                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_sends_host(idx) = i;
                 ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
             }
         }
@@ -212,8 +212,8 @@ int main( int argc, char* argv[] )
             accumulator_topology.begin(), accumulator_topology.end() );
         accumulator_topology.resize( 
             std::distance(accumulator_topology.begin(), unique_end) );
-        auto accumulator_halo = Cabana::Halo<MemorySpace>(
-            MPI_COMM_WORLD, num_ghost_cells, ghost_sends, acc_exports, accumulator_topology );
+        auto accumulator_distributor = Cabana::Distributor<MemorySpace>(
+            MPI_COMM_WORLD, acc_exports, accumulator_topology );
 
         // simulation loop
 
@@ -296,28 +296,27 @@ int main( int argc, char* argv[] )
             scatter_add.reset_except(accumulators);
 
             //boundary_p();
-///////////////////////////////////////////////////////////////////////////////////////////////////
-            std::cout << std::endl;
-            int tx, ty, tz;
-            for ( int zz = 0; zz < num_cells; zz++) {
-              RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
-              if ( ty == 1 && tz == 1 ) {
-                std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
-              }
-            }
-            std::cout << std::endl;
-///////////////////////////////////////////////////////////////////////////////////////////////////
+            //std::cout << std::endl;
+            //int tx, ty, tz;
+            //for ( int zz = 0; zz < num_cells; zz++) {
+            //  RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
+            //  if ( ty == 1 && tz == 1 ) {
+            //    std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
+            //  }
+            //}
+            //std::cout << std::endl;
 
             // Ghosted cells move accumulators
             auto _fill_ghost_buffer =
                 KOKKOS_LAMBDA( const size_t s, const size_t i )
             {
                 int c = s*accumulator_aosoa_t::vector_length + i;
-                size_t cell = ghost_sends(c) - ghost_sends.size();
+                size_t cell = ghost_sends(c);
+                accumulator_cells.access( s, i ) = ghost_recvs(c);
                 for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
                     for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
                         size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
-                        accumulator_slice.access( s, i, n ) = 
+                        accumulator_values.access( s, i, n ) = 
                             accumulators( cell, ii, jj );
                         accumulators( cell, ii, jj ) = 0;
                     }
@@ -328,31 +327,22 @@ int main( int argc, char* argv[] )
             Cabana::simd_parallel_for( ghost_send_policy, 
                 _fill_ghost_buffer, "fill_buffer()" );
 
-            Cabana::gather( accumulator_halo, accumulator_buffer );
+            Cabana::migrate( accumulator_distributor, accumulator_buffer );
 
             auto _add_ghost_accumulators = 
                 KOKKOS_LAMBDA( const size_t s, const size_t i )
             {
-                int c = s*accumulator_aosoa_t::vector_length + i - ghost_recvs.size();
-                size_t cell = ghost_recvs(c);
+                size_t cell = accumulator_cells.access( s, i );
                 for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
                     for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
                         size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
                         accumulators( cell, ii, jj ) +=
-                            accumulator_slice.access( s, i, n );
+                            accumulator_values.access( s, i, n );
                     }
                 }
-///////////////////////////////////////////////////////////////////////////////////////////////////
-//if ( cell > 70 && cell < 90 ) {
-std::cout << "cell: " << cell << ", s: " << s << ", i: " << i
-    << "\nacc: " << accumulators(cell,0,0)
-    << "\nslice: " << accumulator_slice.access(s,i,0)
-    << std::endl;
-//}
-///////////////////////////////////////////////////////////////////////////////////////////////////
             };
             Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
-                ghost_recv_policy( num_ghost_cells, 2*num_ghost_cells );
+                ghost_recv_policy( 0, num_ghost_cells );
             Cabana::simd_parallel_for( ghost_recv_policy, 
                 _add_ghost_accumulators, "add_ghost_accumulators()" );
 

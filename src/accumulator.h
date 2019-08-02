@@ -50,4 +50,13 @@ void unload_accumulator_array(
         real_t dt
 );
 
+//void pass_ghost_accumulators(
+//        accumulator_array_t& accumulators,
+//        size_t nx, // TODO: we can probably pull these out of global params..
+//        size_t ny,
+//        size_t nz,
+//        size_t num_ghosts
+//);
+        
+
 #endif // header guard

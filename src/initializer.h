@@ -48,7 +48,7 @@ class Initializer {
 
             Parameters::instance().dt = 0.0863562;
 
-            Parameters::instance().num_steps = 2;
+            Parameters::instance().num_steps = 2500;
 
             Parameters::instance().v0 = 0.0866025403784439*4.0;
             real_t gam = 1.0/sqrt(1.0-Parameters::instance().v0*Parameters::instance().v0);

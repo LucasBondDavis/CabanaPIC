@@ -124,7 +124,8 @@ using interpolator_array_t = Cabana::AoSoA<InterpolatorDataTypes,MemorySpace,cel
 
 using AccumulatorDataTypes =
     Cabana::MemberTypes<
-    float[12] // jx[4] jy[4] jz[4]
+    float[12], // jx[4] jy[4] jz[4]
+    size_t // cell id
 >;
 
 using accumulator_aosoa_t = Cabana::AoSoA<AccumulatorDataTypes,MemorySpace,cell_blocking>;
