@@ -71,13 +71,11 @@ int main( int argc, char* argv[] )
         const size_t ny = Parameters::instance().ny;
         const size_t nz = Parameters::instance().nz;
         const size_t num_ghosts = Parameters::instance().num_ghosts;
+        const size_t num_real_cells = Parameters::instance().num_real_cells;
         const size_t num_cells = Parameters::instance().num_cells;
+        const size_t num_ghost_cells = num_cells - num_real_cells;
         const size_t num_particles = Parameters::instance().num_particles;
-        const int gn1 = VOXEL( 0, ny, nz, nx,ny,nz,num_ghosts );
-        const int gn2 = VOXEL( nx + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-        const int b_cell0 = VOXEL( (nx-1) + num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-        const int b_cell1 = VOXEL( num_ghosts, ny, nz, nx,ny,nz,num_ghosts );
-        const int previous_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
+        const int prev_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
         const int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
         real_t dxp = 2.f/(npc);
 
@@ -122,18 +120,8 @@ int main( int argc, char* argv[] )
         // Allocate Cabana Data
         interpolator_array_t interpolators(num_cells);
 
-        accumulator_array_t accumulators("Accumulator View", 2048);
+        accumulator_array_t accumulators("Accumulator View", num_cells);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
-        // unmanaged aosoa for halo passing accumulator
-        using accDataTypes = Cabana::MemberTypes<float[3][4]>;
-        using acc_AoSoA_t = Cabana::AoSoA<
-            accDataTypes,
-            MemorySpace,
-            2048,
-            Kokkos::MemoryUnmanaged
-            >;
-        auto ptr = reinterpret_cast<typename acc_AoSoA_t::soa_type*>(accumulators.data());
-        acc_AoSoA_t acc_aosoa( ptr, 1, 2048 );
 
         field_array_t fields(num_cells);
 
@@ -155,34 +143,77 @@ int main( int argc, char* argv[] )
         const real_t py =  (ny>1) ? frac*c*dt/dy : 0;
         const real_t pz =  (nz>1) ? frac*c*dt/dz : 0;
 
-        // create particles distributor
-        std::shared_ptr< Cabana::Distributor<MemorySpace> > particle_distributor;
+        // create slice for particles distributor exports
         auto particle_exports = particles.slice<Comm_Rank>();
-        particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
-            MPI_COMM_WORLD, particle_exports );
 
-        // create pointer and plan for halo
-        std::shared_ptr< Cabana::Halo<MemorySpace> > accumulator_halo;
-        // TODO: *2 works for 1d only
+        // create accumulator export ranks and ids
         Kokkos::View<int*,MemorySpace> acc_exports(
-            "acc_exports",  num_ghosts*2 );
-        Kokkos::View<int*,MemorySpace> acc_ids(
-            "acc_ids", num_ghosts*2 );
-        // TODO move data to device (loop or copy)
-        std::vector<int> ghost_neighbors = { gn1, gn2 };
-        for ( int i = 0; i < acc_ids.size(); ++i ) {
-            acc_ids(i) = ghost_neighbors[i]*12;
+            Kokkos::ViewAllocateWithoutInitializing( "acc_exports" ),
+            num_ghost_cells );
+        Kokkos::View<int*, MemorySpace>::HostMirror acc_exports_host =
+            Kokkos::create_mirror( acc_exports );
+
+        Kokkos::View<int*, MemorySpace> ghost_sends( 
+            Kokkos::ViewAllocateWithoutInitializing( "ghost_sends" ),
+            num_ghost_cells );
+        Kokkos::View<int*, MemorySpace>::HostMirror ghost_sends_host =
+            Kokkos::create_mirror( ghost_sends );
+
+        // specify where ghosted data go on host rank
+        Kokkos::View<int*, MemorySpace> ghost_recvs( 
+            Kokkos::ViewAllocateWithoutInitializing( "ghost_recvs" ),
+            num_ghost_cells );
+        Kokkos::View<int*, MemorySpace>::HostMirror ghost_recvs_host =
+            Kokkos::create_mirror( ghost_recvs );
+
+        // create send & recv buffer for accumulator ghosts
+        accumulator_aosoa_t accumulator_buffer(
+            "accumulator_buffer", num_ghost_cells*2 );
+        auto accumulator_slice = Cabana::slice<0>( accumulator_buffer );
+
+
+        int ix, iy, iz;
+        int low_x = num_ghosts;
+        int low_y = num_ghosts;
+        int low_z = num_ghosts;
+        int high_x = (nx-1)+num_ghosts;
+        int high_y = (ny-1)+num_ghosts;
+        int high_z = (nz-1)+num_ghosts;
+        Kokkos::deep_copy( acc_exports_host, comm_rank ); // set default
+        // TODO: implement neighbor array and make 3d
+        // This stuff could be moved to move_p
+        for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
+            RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
+            if ( ix < low_x ) {
+                acc_exports_host(idx) = prev_rank;
+                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+            }
+            else if ( ix > high_x ) {
+                acc_exports_host(idx) = next_rank;
+                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+            }
+            else if ( iy < low_y || iy > high_y ||
+                      iz < low_z || iz > high_z ) {
+                ghost_sends_host(idx) = i + num_ghost_cells;
+                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+            }
         }
-        // seems non trivial to set in a loop
-        acc_exports(0) = previous_rank;
-        acc_exports(1) = next_rank;
-        // set neighbors for topology 
-        std::vector<int> halo_topology = { previous_rank, comm_rank, next_rank };
-        std::sort( halo_topology.begin(), halo_topology.end() );
-        auto unique_end = std::unique( halo_topology.begin(), halo_topology.end() );
-        halo_topology.resize( std::distance(halo_topology.begin(), unique_end) );
-        accumulator_halo = std::make_shared< Cabana::Halo<MemorySpace> >(
-            MPI_COMM_WORLD, 2048-acc_ids.size(), acc_ids, acc_exports, halo_topology );
+        Kokkos::deep_copy( acc_exports, acc_exports_host );
+        Kokkos::deep_copy( ghost_sends, ghost_sends_host );
+        Kokkos::deep_copy( ghost_recvs, ghost_recvs_host );
+
+        // set neighbors for accumulator topology 
+        std::vector<int> accumulator_topology =
+            { prev_rank, comm_rank, next_rank };
+        std::sort( accumulator_topology.begin(), accumulator_topology.end() );
+        auto unique_end = std::unique( 
+            accumulator_topology.begin(), accumulator_topology.end() );
+        accumulator_topology.resize( 
+            std::distance(accumulator_topology.begin(), unique_end) );
+        auto accumulator_halo = Cabana::Halo<MemorySpace>(
+            MPI_COMM_WORLD, num_ghost_cells, ghost_sends, acc_exports, accumulator_topology );
 
         // simulation loop
 
@@ -235,9 +266,9 @@ int main( int argc, char* argv[] )
 
             // migrate particles across mpi ranks
             auto particle_exports = particles.slice<Comm_Rank>();
-            particle_distributor = std::make_shared< Cabana::Distributor<MemorySpace> >(
+            auto particle_distributor = Cabana::Distributor<MemorySpace>(
                 MPI_COMM_WORLD, particle_exports );
-            Cabana::migrate( *particle_distributor, particles );
+            Cabana::migrate( particle_distributor, particles );
 
             // NOTE: (deprecated) move particles to ghost cells instead of this
             //auto cell = particles.slice<Cell_Index>();
@@ -265,20 +296,8 @@ int main( int argc, char* argv[] )
             scatter_add.reset_except(accumulators);
 
             //boundary_p();
-
-            // Ghosted cells move accumulators
-
-            auto acc_slice = Cabana::slice<0>( acc_aosoa );
-            Cabana::gather( *accumulator_halo, acc_aosoa );
-
-            // TODO: loop over the third index                                      BAD!
-            accumulators( b_cell0, accumulator_var::jx, 0 ) += acc_slice.access( 0, 2046, 0, 0);
-            accumulators( b_cell1, accumulator_var::jx, 0 ) += acc_slice.access( 0, 2047, 0, 0);
-            accumulators( ghost_neighbors[0], accumulator_var::jx, 0 ) = 0;
-            accumulators( ghost_neighbors[1], accumulator_var::jx, 0 ) = 0;
-            acc_slice.access( 0, 2046, 0, 0) = 0;
-            acc_slice.access( 0, 2047, 0, 0) = 0;
-
+///////////////////////////////////////////////////////////////////////////////////////////////////
+            std::cout << std::endl;
             int tx, ty, tz;
             for ( int zz = 0; zz < num_cells; zz++) {
               RANK_TO_INDEX(zz, tx, ty, tz, nx+2, ny+2);
@@ -286,6 +305,56 @@ int main( int argc, char* argv[] )
                 std::cout << zz << " " << tx << " " << accumulators(zz,0,0) << std::endl;
               }
             }
+            std::cout << std::endl;
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+            // Ghosted cells move accumulators
+            auto _fill_ghost_buffer =
+                KOKKOS_LAMBDA( const size_t s, const size_t i )
+            {
+                int c = s*accumulator_aosoa_t::vector_length + i;
+                size_t cell = ghost_sends(c) - ghost_sends.size();
+                for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
+                    for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
+                        size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
+                        accumulator_slice.access( s, i, n ) = 
+                            accumulators( cell, ii, jj );
+                        accumulators( cell, ii, jj ) = 0;
+                    }
+                }
+            };
+            Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
+                ghost_send_policy( 0, num_ghost_cells );
+            Cabana::simd_parallel_for( ghost_send_policy, 
+                _fill_ghost_buffer, "fill_buffer()" );
+
+            Cabana::gather( accumulator_halo, accumulator_buffer );
+
+            auto _add_ghost_accumulators = 
+                KOKKOS_LAMBDA( const size_t s, const size_t i )
+            {
+                int c = s*accumulator_aosoa_t::vector_length + i - ghost_recvs.size();
+                size_t cell = ghost_recvs(c);
+                for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
+                    for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
+                        size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
+                        accumulators( cell, ii, jj ) +=
+                            accumulator_slice.access( s, i, n );
+                    }
+                }
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//if ( cell > 70 && cell < 90 ) {
+std::cout << "cell: " << cell << ", s: " << s << ", i: " << i
+    << "\nacc: " << accumulators(cell,0,0)
+    << "\nslice: " << accumulator_slice.access(s,i,0)
+    << std::endl;
+//}
+///////////////////////////////////////////////////////////////////////////////////////////////////
+            };
+            Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
+                ghost_recv_policy( num_ghost_cells, 2*num_ghost_cells );
+            Cabana::simd_parallel_for( ghost_recv_policy, 
+                _add_ghost_accumulators, "add_ghost_accumulators()" );
 
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);

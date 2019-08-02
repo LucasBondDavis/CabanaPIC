@@ -98,35 +98,36 @@ enum InterpolatorFields
     DCBZDZ
 };
 
-    using InterpolatorDataTypes =
-        Cabana::MemberTypes<
-        float, //  ex,
-        float , // dexdy,
-        float , // dexdz,
-        float , // d2exdydz,
-        float , // ey,
-        float , // deydz,
-        float , // deydx,
-        float , // d2eydzdx,
-        float , // ez,
-        float , // dezdx,
-        float , // dezdy,
-        float , // d2ezdxdy,
-        // Below here is not need for ES? EM only?
-        float , // cbx,
-        float , // dcbxdx,
-        float , // cby,
-        float , // dcbydy,
-        float , // cbz,
-        float // dcbzdz,
-        >;
-    using interpolator_array_t = Cabana::AoSoA<InterpolatorDataTypes,MemorySpace,cell_blocking>;
+using InterpolatorDataTypes =
+    Cabana::MemberTypes<
+    float, //  ex,
+    float , // dexdy,
+    float , // dexdz,
+    float , // d2exdydz,
+    float , // ey,
+    float , // deydz,
+    float , // deydx,
+    float , // d2eydzdx,
+    float , // ez,
+    float , // dezdx,
+    float , // dezdy,
+    float , // d2ezdxdy,
+    // Below here is not need for ES? EM only?
+    float , // cbx,
+    float , // dcbxdx,
+    float , // cby,
+    float , // dcbydy,
+    float , // cbz,
+    float // dcbzdz,
+    >;
+using interpolator_array_t = Cabana::AoSoA<InterpolatorDataTypes,MemorySpace,cell_blocking>;
+
 using AccumulatorDataTypes =
     Cabana::MemberTypes<
     float[12] // jx[4] jy[4] jz[4]
 >;
 
-//using accumulator_array_t = Cabana::AoSoA<AccumulatorDataTypes,MemorySpace,cell_blocking>;
+using accumulator_aosoa_t = Cabana::AoSoA<AccumulatorDataTypes,MemorySpace,cell_blocking>;
 
 #define ACCUMULATOR_VAR_COUNT 3
 #define ACCUMULATOR_ARRAY_LENGTH 4

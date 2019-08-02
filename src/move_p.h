@@ -374,21 +374,52 @@ KOKKOS_INLINE_FUNCTION int move_p(
     // Neighbor array would handle this better
     int ii = cell.access(s,i);
     int exit_face = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
-    // TODO: currently assumes periodic boundary
+    // TODO: currently assumes periodic boundary and 1d
+    if ( exit_face == -1 )
+        return 0;
     if ( exit_face == 0 ) {
         ix = (nx-1) + num_ghosts;
-        int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
-        cell.access(s, i) = updated_ii;
         mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
+    }
+    else if (exit_face == 1) { // -1 on y face
+        iy = (ny-1) + num_ghosts;
+    }
+    else if (exit_face == 2) { // -1 on z face
+        iz = (nz-1) + num_ghosts;
     }
     else if ( exit_face == 3 ) {
         ix = num_ghosts;
-        int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
-        cell.access(s, i) = updated_ii;
         mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
     }
+    else if (exit_face == 4) { // 1 on y face
+        iy = num_ghosts;
+    }
+    else if (exit_face == 5) { // 1 on z face
+        iz = num_ghosts;
+    }
+    int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
+    cell.access(s, i) = updated_ii;
 
     return 0; // Return "mover not in use"
 }
 
 #endif // move_p
+
+// find the cell where ghosted parts go
+int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
+    int ix, iy, iz;
+    RANK_TO_INDEX( cell, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts );
+    if ( ix < num_ghosts )
+        ix += nx;
+    else if ( ix > (nx-1) + num_ghosts )
+        ix -= nx;
+    //if ( iy < num_ghosts ) //ENABLE FOR 3d, breaks 1d
+    //    iy += ny;
+    //else if ( iy > (ny-1) + num_ghosts )
+    //    iy -= ny;
+    //if ( iz < num_ghosts )
+    //    iz += nz;
+    //else if ( iz > (nz-1) + num_ghosts )
+    //    iz -= nz;
+    return VOXEL( ix, iy, iz, nx, ny, nz, num_ghosts );
+}
