@@ -1,15 +1,10 @@
-#include <Cabana_AoSoA.hpp>
 #include <Cabana_Core.hpp>
-#include <Cabana_Sort.hpp> // is this needed if we already have core?
 
 #include <Kokkos_Core.hpp>
 
 #include <cstdlib>
 #include <iostream>
 #include <memory>
-#include <vector>
-
-#include <mpi.h>
 
 #include "types.h"
 #include "helpers.h"
@@ -51,11 +46,6 @@ int main( int argc, char* argv[] )
     printf ("#On Kokkos execution space %s\n",
             typeid (Kokkos::DefaultExecutionSpace).name ());
 
-    int comm_size = -1;
-    MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
-    int comm_rank = -1;
-    MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
-    // Cabana scoping block
     {
 
         Visualizer vis;
@@ -73,10 +63,7 @@ int main( int argc, char* argv[] )
         const size_t num_ghosts = Parameters::instance().num_ghosts;
         const size_t num_real_cells = Parameters::instance().num_real_cells;
         const size_t num_cells = Parameters::instance().num_cells;
-        const size_t num_ghost_cells = num_cells - num_real_cells;
         const size_t num_particles = Parameters::instance().num_particles;
-        const int prev_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
-        const int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
         real_t dxp = 2.f/(npc);
 
         // Define some consts
@@ -123,6 +110,10 @@ int main( int argc, char* argv[] )
         accumulator_array_t accumulators("Accumulator View", num_cells);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
 
+        accumulator_ghosts_t accumulator_ghosts;
+        accumulator_ghosts.initialize( nx, ny, nz,
+            num_ghosts, num_real_cells, num_cells);
+
         field_array_t fields(num_cells);
 
         Initializer::initialize_interpolator(interpolators);
@@ -145,75 +136,6 @@ int main( int argc, char* argv[] )
 
         // create slice for particles distributor exports
         auto particle_exports = particles.slice<Comm_Rank>();
-
-        // create accumulator export ranks and ids
-        Kokkos::View<int*,MemorySpace> acc_exports(
-            Kokkos::ViewAllocateWithoutInitializing( "acc_exports" ),
-            num_ghost_cells );
-        Kokkos::View<int*, MemorySpace>::HostMirror acc_exports_host =
-            Kokkos::create_mirror( acc_exports );
-
-        Kokkos::View<int*, MemorySpace> ghost_sends( 
-            Kokkos::ViewAllocateWithoutInitializing( "ghost_sends" ),
-            num_ghost_cells );
-        Kokkos::View<int*, MemorySpace>::HostMirror ghost_sends_host =
-            Kokkos::create_mirror( ghost_sends );
-
-        // specify where ghosted data go on host rank
-        Kokkos::View<int*, MemorySpace> ghost_recvs( 
-            Kokkos::ViewAllocateWithoutInitializing( "ghost_recvs" ),
-            num_ghost_cells );
-        Kokkos::View<int*, MemorySpace>::HostMirror ghost_recvs_host =
-            Kokkos::create_mirror( ghost_recvs );
-
-        // create send & recv buffer for accumulator ghosts
-        accumulator_aosoa_t accumulator_buffer(
-            "accumulator_buffer", num_ghost_cells );
-        auto accumulator_values = Cabana::slice<0>( accumulator_buffer );
-        auto accumulator_cells = Cabana::slice<1>( accumulator_buffer );
-
-        int ix, iy, iz;
-        int low_x = num_ghosts;
-        int low_y = num_ghosts;
-        int low_z = num_ghosts;
-        int high_x = (nx-1)+num_ghosts;
-        int high_y = (ny-1)+num_ghosts;
-        int high_z = (nz-1)+num_ghosts;
-        Kokkos::deep_copy( acc_exports_host, comm_rank ); // set default
-        // TODO: implement neighbor array and make 3d
-        // This stuff could be moved to move_p
-        for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
-            RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
-            if ( ix < low_x ) {
-                acc_exports_host(idx) = prev_rank;
-                ghost_sends_host(idx) = i;
-                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
-            }
-            else if ( ix > high_x ) {
-                acc_exports_host(idx) = next_rank;
-                ghost_sends_host(idx) = i;
-                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
-            }
-            else if ( iy < low_y || iy > high_y ||
-                      iz < low_z || iz > high_z ) {
-                ghost_sends_host(idx) = i;
-                ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
-            }
-        }
-        Kokkos::deep_copy( acc_exports, acc_exports_host );
-        Kokkos::deep_copy( ghost_sends, ghost_sends_host );
-        Kokkos::deep_copy( ghost_recvs, ghost_recvs_host );
-
-        // set neighbors for accumulator topology 
-        std::vector<int> accumulator_topology =
-            { prev_rank, comm_rank, next_rank };
-        std::sort( accumulator_topology.begin(), accumulator_topology.end() );
-        auto unique_end = std::unique( 
-            accumulator_topology.begin(), accumulator_topology.end() );
-        accumulator_topology.resize( 
-            std::distance(accumulator_topology.begin(), unique_end) );
-        auto accumulator_distributor = Cabana::Distributor<MemorySpace>(
-            MPI_COMM_WORLD, acc_exports, accumulator_topology );
 
         // simulation loop
 
@@ -307,44 +229,7 @@ int main( int argc, char* argv[] )
             //std::cout << std::endl;
 
             // Ghosted cells move accumulators
-            auto _fill_ghost_buffer =
-                KOKKOS_LAMBDA( const size_t s, const size_t i )
-            {
-                int c = s*accumulator_aosoa_t::vector_length + i;
-                size_t cell = ghost_sends(c);
-                accumulator_cells.access( s, i ) = ghost_recvs(c);
-                for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
-                    for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
-                        size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
-                        accumulator_values.access( s, i, n ) = 
-                            accumulators( cell, ii, jj );
-                        accumulators( cell, ii, jj ) = 0;
-                    }
-                }
-            };
-            Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
-                ghost_send_policy( 0, num_ghost_cells );
-            Cabana::simd_parallel_for( ghost_send_policy, 
-                _fill_ghost_buffer, "fill_buffer()" );
-
-            Cabana::migrate( accumulator_distributor, accumulator_buffer );
-
-            auto _add_ghost_accumulators = 
-                KOKKOS_LAMBDA( const size_t s, const size_t i )
-            {
-                size_t cell = accumulator_cells.access( s, i );
-                for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
-                    for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
-                        size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
-                        accumulators( cell, ii, jj ) +=
-                            accumulator_values.access( s, i, n );
-                    }
-                }
-            };
-            Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
-                ghost_recv_policy( 0, num_ghost_cells );
-            Cabana::simd_parallel_for( ghost_recv_policy, 
-                _add_ghost_accumulators, "add_ghost_accumulators()" );
+            accumulator_ghosts.scatter(accumulators);
 
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
@@ -368,10 +253,7 @@ int main( int argc, char* argv[] )
             float e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
             float total_e_energy = -1;
             MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD );
-            if ( comm_rank == 0 )
-                printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
-            //if ( comm_rank == 0 )
-            //    printf("time:%ld %f, %f\n",step, step*dt, field_solver.e_energy(fields, px, py, pz, nx, ny, nz));
+            printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
         }
 
     } // End Scoping block

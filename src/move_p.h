@@ -405,21 +405,3 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
 #endif // move_p
 
-// find the cell where ghosted parts go
-int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
-    int ix, iy, iz;
-    RANK_TO_INDEX( cell, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts );
-    if ( ix < num_ghosts )
-        ix += nx;
-    else if ( ix > (nx-1) + num_ghosts )
-        ix -= nx;
-    //if ( iy < num_ghosts ) //ENABLE FOR 3d, breaks 1d
-    //    iy += ny;
-    //else if ( iy > (ny-1) + num_ghosts )
-    //    iy -= ny;
-    //if ( iz < num_ghosts )
-    //    iz += nz;
-    //else if ( iz > (nz-1) + num_ghosts )
-    //    iz -= nz;
-    return VOXEL( ix, iy, iz, nx, ny, nz, num_ghosts );
-}

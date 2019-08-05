@@ -3,9 +3,15 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <memory>
+#include <vector>
 
-#include <Cabana_Types.hpp>
+#include <mpi.h>
+
 #include <Cabana_AoSoA.hpp>
+#include <Cabana_Distributor.hpp>
+#include <Cabana_ExecutionPolicy.hpp>
+#include <Cabana_Parallel.hpp>
 #include <Cabana_Slice.hpp>
 
 #include "types.h"
@@ -50,13 +56,28 @@ void unload_accumulator_array(
         real_t dt
 );
 
-//void pass_ghost_accumulators(
-//        accumulator_array_t& accumulators,
-//        size_t nx, // TODO: we can probably pull these out of global params..
-//        size_t ny,
-//        size_t nz,
-//        size_t num_ghosts
-//);
-        
+class accumulator_ghosts_t {
+
+  public:    
+    void initialize( 
+            size_t nx,
+            size_t ny,
+            size_t nz,
+            size_t num_ghosts,
+            size_t num_real_cells,
+            size_t num_cells
+    );
+
+    void scatter( accumulator_array_t accumulators );
+
+  private: 
+    Kokkos::View<int*, MemorySpace> _acc_exports;
+    Kokkos::View<int*, MemorySpace> _ghost_sends;
+    Kokkos::View<int*, MemorySpace> _ghost_recvs;
+    accumulator_aosoa_t _accumulator_buffer;
+    std::shared_ptr<Cabana::Distributor<MemorySpace>>
+        _accumulator_distributor;
+
+};        
 
 #endif // header guard
