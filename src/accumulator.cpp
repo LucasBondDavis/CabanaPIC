@@ -138,7 +138,7 @@ int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
     return VOXEL( ix, iy, iz, nx, ny, nz, num_ghosts );
 }
 
-void accumulator_ghosts_t::initialize( size_t nx, size_t ny, size_t nz,
+accumulator_ghosts_t::accumulator_ghosts_t( size_t nx, size_t ny, size_t nz,
                  size_t num_ghosts, size_t num_real_cells, size_t num_cells )
 {
     

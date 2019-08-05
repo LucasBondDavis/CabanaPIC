@@ -59,7 +59,7 @@ void unload_accumulator_array(
 class accumulator_ghosts_t {
 
   public:    
-    void initialize( 
+    accumulator_ghosts_t( 
             size_t nx,
             size_t ny,
             size_t nz,

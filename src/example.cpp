@@ -110,9 +110,8 @@ int main( int argc, char* argv[] )
         accumulator_array_t accumulators("Accumulator View", num_cells);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
 
-        accumulator_ghosts_t accumulator_ghosts;
-        accumulator_ghosts.initialize( nx, ny, nz,
-            num_ghosts, num_real_cells, num_cells);
+        accumulator_ghosts_t accumulator_ghosts(
+            nx, ny, nz, num_ghosts, num_real_cells, num_cells);
 
         field_array_t fields(num_cells);
 
