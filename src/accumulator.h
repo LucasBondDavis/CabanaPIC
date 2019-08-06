@@ -56,10 +56,15 @@ void unload_accumulator_array(
         real_t dt
 );
 
-class accumulator_ghosts_t {
+// TODO: find a better file for this
+class ghosts_t {
+// NOTE: this is an inefficient way to pass particles around
+//  1. a function to pass kokkos::views would be useful
+//  2. being able to specify what index each item recived
+//      should be placed would be very useful
 
   public:    
-    accumulator_ghosts_t( 
+    ghosts_t( 
             size_t nx,
             size_t ny,
             size_t nz,
@@ -68,15 +73,17 @@ class accumulator_ghosts_t {
             size_t num_cells
     );
 
-    void scatter( accumulator_array_t accumulators );
+    void scatter(accumulator_array_t accumulators);
+
+    void scatter( field_array_t fields );
 
   private: 
-    Kokkos::View<int*, MemorySpace> _acc_exports;
+    Kokkos::View<int*, MemorySpace> _exports;
     Kokkos::View<int*, MemorySpace> _ghost_sends;
     Kokkos::View<int*, MemorySpace> _ghost_recvs;
     accumulator_aosoa_t _accumulator_buffer;
-    std::shared_ptr<Cabana::Distributor<MemorySpace>>
-        _accumulator_distributor;
+    field_array_t _field_buffer;
+    std::shared_ptr<Cabana::Distributor<MemorySpace>> _distributor;
 
 };        
 

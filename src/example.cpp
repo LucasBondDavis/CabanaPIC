@@ -110,8 +110,7 @@ int main( int argc, char* argv[] )
         accumulator_array_t accumulators("Accumulator View", num_cells);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
 
-        accumulator_ghosts_t accumulator_ghosts(
-            nx, ny, nz, num_ghosts, num_real_cells, num_cells);
+        ghosts_t cell_ghosts( nx, ny, nz, num_ghosts, num_real_cells, num_cells);
 
         field_array_t fields(num_cells);
 
@@ -191,7 +190,7 @@ int main( int argc, char* argv[] )
                 MPI_COMM_WORLD, particle_exports );
             Cabana::migrate( particle_distributor, particles );
 
-            // NOTE: (deprecated) move particles to ghost cells instead of this
+            // NOTE: (deprecated) this could be moved to boundary_p()
             //auto cell = particles.slice<Cell_Index>();
             //auto x_vel = particles.slice<VelocityX>();
             //auto disp_x = particles.slice<DispX>();
@@ -228,10 +227,13 @@ int main( int argc, char* argv[] )
             //std::cout << std::endl;
 
             // Ghosted cells move accumulators
-            accumulator_ghosts.scatter(accumulators);
+            cell_ghosts.scatter(accumulators);
 
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
+
+            // TODO: I don't know where exactly the field scatter should go
+            cell_ghosts.scatter(fields);
 
             //     // Half advance the magnetic field from B_0 to B_{1/2}
             //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
