@@ -84,6 +84,32 @@ class ES_Field_Solver
             Kokkos::RangePolicy<ExecutionSpace> exec_policy( 0, fields.size() );
             Kokkos::parallel_for( exec_policy, _advance_e, "es_advance_e()" );
         }
+
+        real_t e_energy(
+                field_array_t fields,
+                real_t px,
+                real_t py,
+                real_t pz,
+                size_t nx,
+                size_t ny,
+                size_t nz
+                )
+        {
+            auto ex = fields.slice<FIELD_EX>();
+            //auto ey = fields.slice<FIELD_EY>();
+            //auto ez = fields.slice<FIELD_EZz();
+            auto _e_energy = KOKKOS_LAMBDA( const int i, real_t & lsum )
+            {
+                lsum += ex(i) * ex(i);
+                //lsum += ey(i) * ey(i);
+                //lsum += ez(i) * ez(i);
+            };
+
+            real_t e_tot_energy=0;
+            Kokkos::RangePolicy<ExecutionSpace> exec_policy( 0, fields.size() );
+            Kokkos::parallel_reduce("es_e_energy_1d()", exec_policy, _e_energy, e_tot_energy );
+            return e_tot_energy;
+        }
 };
 
 

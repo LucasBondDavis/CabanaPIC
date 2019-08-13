@@ -64,16 +64,19 @@ class ghosts_t {
 //      should be placed would be very useful
 
   public:    
-    ghosts_t( 
-            size_t nx,
-            size_t ny,
-            size_t nz,
-            size_t num_ghosts,
-            size_t num_real_cells,
-            size_t num_cells
+    ghosts_t(
+        const size_t nx,
+        const size_t ny,
+        const size_t nz,
+        const size_t num_ghosts,
+        const size_t num_real_cells,
+        const size_t num_cells,
+        MPI_Comm mpi_comm
     );
 
-    void scatter(accumulator_array_t accumulators);
+    void collapse_boundaries( accumulator_array_t accumulators );
+
+    void scatter( accumulator_array_t accumulators );
 
     void scatter( field_array_t fields );
 
@@ -84,6 +87,7 @@ class ghosts_t {
     accumulator_aosoa_t _accumulator_buffer;
     field_array_t _field_buffer;
     std::shared_ptr<Cabana::Distributor<MemorySpace>> _distributor;
+    MPI_Comm _mpi_comm;
 
 };        
 

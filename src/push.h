@@ -19,7 +19,8 @@ void push(
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        Boundary boundary
+        Boundary boundary,
+        MPI_Comm mpi_comm
         )
 {
 
@@ -66,7 +67,7 @@ void push(
     auto _push =
         KOKKOS_LAMBDA( const int s, const int i )
         {
-            auto accumulators_scatter_access = a0.access();
+            auto _asa = a0.access();
 
             //for ( int i = 0; i < particle_list_t::vector_length; ++i )
             //{
@@ -92,47 +93,25 @@ void push(
             auto dcbydy = _dcbydy(ii);
             auto cbz = _cbz(ii);
             auto dcbzdz = _dcbzdz(ii);
-            /*
-               auto ex  = f0.get<EX>(ii);
-               auto dexdy  = f0.get<DEXDY>(ii);
-               auto dexdz  = f0.get<DEXDZ>(ii);
-               auto d2exdydz  = f0.get<D2EXDYDZ>(ii);
-               auto ey  = f0.get<EY>(ii);
-               auto deydz  = f0.get<DEYDZ>(ii);
-               auto deydx  = f0.get<DEYDX>(ii);
-               auto d2eydzdx  = f0.get<D2EYDZDX>(ii);
-               auto ez  = f0.get<EZ>(ii);
-               auto dezdx  = f0.get<DEZDX>(ii);
-               auto dezdy  = f0.get<DEZDY>(ii);
-               auto d2ezdxdy  = f0.get<D2EZDXDY>(ii);
-               auto cbx  = f0.get<CBX>(ii);
-               auto dcbxdx   = f0.get<DCBXDX>(ii);
-               auto cby  = f0.get<CBY>(ii);
-               auto dcbydy  = f0.get<DCBYDY>(ii);
-               auto cbz  = f0.get<CBZ>(ii);
-               auto dcbzdz  = f0.get<DCBZDZ>(ii);
-               */
-
             // Perform push
 
-            // TODO: deal with pm's
             particle_mover_t local_pm = particle_mover_t();
 
             real_t dx = position_x.access(s,i);   // Load position
             real_t dy = position_y.access(s,i);   // Load position
             real_t dz = position_z.access(s,i);   // Load position
 
-            // real_t hax  = qdt_2mc*(    ( ex    + dy*dexdy    ) +
-            //         dz*( dexdz + dy*d2exdydz ) );
-            // real_t hay  = qdt_2mc*(    ( ey    + dz*deydz    ) +
-            //         dx*( deydx + dz*d2eydzdx ) );
-            // real_t haz  = qdt_2mc*(    ( ez    + dx*dezdx    ) +
-            //         dy*( dezdy + dx*d2ezdxdy ) );
+            real_t hax  = qdt_2mc*(    ( ex    + dy*dexdy    ) +
+                    dz*( dexdz + dy*d2exdydz ) );
+            real_t hay  = qdt_2mc*(    ( ey    + dz*deydz    ) +
+                    dx*( deydx + dz*d2eydzdx ) );
+            real_t haz  = qdt_2mc*(    ( ez    + dx*dezdx    ) +
+                    dy*( dezdy + dx*d2ezdxdy ) );
 
             //1D only
-            real_t hax = qdt_2mc*ex;
-            real_t hay = 0;
-            real_t haz = 0;
+            //real_t hax = qdt_2mc*ex;
+            //real_t hay = 0;
+            //real_t haz = 0;
 
             cbx  = cbx + dx*dcbxdx;             // Interpolate B
             cby  = cby + dy*dcbydy;
@@ -206,55 +185,50 @@ void push(
                 //real_t* a  = (real_t *)( a0[ii].a );              // Get accumulator
 
                 //1D only
-                //_a(ii,0) += q*ux;
-                //_a(ii,1) = 0;
-                //_a(ii,2) = 0;
-                //_a(ii,3) = 0;
+                //_asa(ii, accumulator_var::jx, 0) += q*ux;
+                //_asa(ii, accumulator_var::jx, 1) += 0.0;
+                //_asa(ii, accumulator_var::jx, 2) += 0.0;
+                //_asa(ii, accumulator_var::jx, 3) += 0.0;
 
-                accumulators_scatter_access(ii, accumulator_var::jx, 0) += q*ux;
-                accumulators_scatter_access(ii, accumulator_var::jx, 1) += 0.0;
-                accumulators_scatter_access(ii, accumulator_var::jx, 2) += 0.0;
-                accumulators_scatter_access(ii, accumulator_var::jx, 3) += 0.0;
+                #define ACCUMULATE_J(X,Y,Z)                                    \
+                    v4  = q*u##X;   /* v2 = q ux                            */ \
+                    v1  = v4*d##Y;  /* v1 = q ux dy                         */ \
+                    v0  = v4-v1;    /* v0 = q ux (1-dy)                     */ \
+                    v1 += v4;       /* v1 = q ux (1+dy)                     */ \
+                    v4  = one+d##Z; /* v4 = 1+dz                            */ \
+                    v2  = v0*v4;    /* v2 = q ux (1-dy)(1+dz)               */ \
+                    v3  = v1*v4;    /* v3 = q ux (1+dy)(1+dz)               */ \
+                    v4  = one-d##Z; /* v4 = 1-dz                            */ \
+                    v0 *= v4;       /* v0 = q ux (1-dy)(1-dz)               */ \
+                    v1 *= v4;       /* v1 = q ux (1+dy)(1-dz)               */ \
+                    v0 += v5;       /* v0 = q ux [ (1-dy)(1-dz) + uy*uz/3 ] */ \
+                    v1 -= v5;       /* v1 = q ux [ (1+dy)(1-dz) - uy*uz/3 ] */ \
+                    v2 -= v5;       /* v2 = q ux [ (1-dy)(1+dz) - uy*uz/3 ] */ \
+                    v3 += v5;       /* v3 = q ux [ (1+dy)(1+dz) + uy*uz/3 ] */ \
+                    _asa(ii, accumulator_var::j##X, 0) += v0;                  \
+                    _asa(ii, accumulator_var::j##X, 1) += v1;                  \
+                    _asa(ii, accumulator_var::j##X, 2) += v2;                  \
+                    _asa(ii, accumulator_var::j##X, 3) += v3;                  
 
-                // #     define ACCUMULATE_J(X,Y,Z,offset)                                 \
-                //                     v4  = q*u##X;   /* v2 = q ux                            */        \
-                //                     v1  = v4*d##Y;  /* v1 = q ux dy                         */        \
-                //                     v0  = v4-v1;    /* v0 = q ux (1-dy)                     */        \
-                //                     v1 += v4;       /* v1 = q ux (1+dy)                     */        \
-                //                     v4  = one+d##Z; /* v4 = 1+dz                            */        \
-                //                     v2  = v0*v4;    /* v2 = q ux (1-dy)(1+dz)               */        \
-                //                     v3  = v1*v4;    /* v3 = q ux (1+dy)(1+dz)               */        \
-                //                     v4  = one-d##Z; /* v4 = 1-dz                            */        \
-                //                     v0 *= v4;       /* v0 = q ux (1-dy)(1-dz)               */        \
-                //                     v1 *= v4;       /* v1 = q ux (1+dy)(1-dz)               */        \
-                //                     v0 += v5;       /* v0 = q ux [ (1-dy)(1-dz) + uy*uz/3 ] */        \
-                //                     v1 -= v5;       /* v1 = q ux [ (1+dy)(1-dz) - uy*uz/3 ] */        \
-                //                     v2 -= v5;       /* v2 = q ux [ (1-dy)(1+dz) - uy*uz/3 ] */        \
-                //                     v3 += v5;       /* v3 = q ux [ (1+dy)(1+dz) + uy*uz/3 ] */        \
-                //                     _a(ii,offset+0) += v0; \
-                //                     _a(ii,offset+1) += v1; \
-                //                     _a(ii,offset+2) += v2; \
-                //                     _a(ii,offset+3) += v3;
+                    ACCUMULATE_J(x,y,z);
+                    ACCUMULATE_J(y,z,x);
+                    ACCUMULATE_J(z,x,y);
 
-                //                     ACCUMULATE_J( x,y,z, 0 );
-                //                     ACCUMULATE_J( y,z,x, 4 );
-                //                     ACCUMULATE_J( z,x,y, 8 );
-
-                // #     undef ACCUMULATE_J
+                #undef ACCUMULATE_J
 
             }
             else
             {                                    // Unlikely
-                local_pm.dispx = ux;  //local_pm.dispx = ux;
-                local_pm.dispy = uy;  //local_pm.dispy = uy;
-                local_pm.dispz = uz;  //local_pm.dispz = uz;
+                local_pm.dispx = ux;
+                local_pm.dispy = uy;
+                local_pm.dispz = uz;
 
                 //local_pm.i = s*particle_list_t::vector_length + i; //i + itmp; //p_ - p0;
 
                 // Handle particles that cross cells
                 //move_p( position_x, position_y, position_z, cell, _a, q, local_pm,  g,  s, i, nx, ny, nz, num_ghosts, boundary );
 
-                move_p( a0, particles, local_pm, q, g, s, i, nx, ny, nz, num_ghosts, boundary );
+                move_p( a0, particles, local_pm, q, g, s, i, nx, ny, nz, num_ghosts, boundary, mpi_comm );
 
                 // TODO: renable this
                 //if ( move_p( p0, local_pm, a0, g, qsp ) ) { // Unlikely

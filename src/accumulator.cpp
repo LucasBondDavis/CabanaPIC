@@ -138,17 +138,35 @@ int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
     return VOXEL( ix, iy, iz, nx, ny, nz, num_ghosts );
 }
 
-ghosts_t::ghosts_t( size_t nx, size_t ny, size_t nz,
-        size_t num_ghosts, size_t num_real_cells, size_t num_cells )
+ghosts_t::ghosts_t(
+        const size_t nx,
+        const size_t ny,
+        const size_t nz,
+        const size_t num_ghosts,
+        const size_t num_real_cells,
+        const size_t num_cells,
+        MPI_Comm mpi_comm )
 { 
     // Get mpi info
-    int comm_size = -1;
-    MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
     int comm_rank = -1;
-    MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+    _mpi_comm = mpi_comm;
+    MPI_Comm_rank( _mpi_comm, &comm_rank );
 
-    const int prev_rank = ( comm_rank == 0 ) ? comm_size - 1 : comm_rank - 1;
-    const int next_rank = ( comm_rank == comm_size - 1 ) ? 0 : comm_rank + 1;
+    // MPI neighbors for X
+    MPI_Cart_shift( _mpi_comm, 0, 1, &comm_rank, &dest_rank );
+    int next_x_rank = dest_rank;
+    MPI_Cart_shift( _mpi_comm, 0,- 1, &comm_rank, &dest_rank );
+    int prev_x_rank = dest_rank;
+    // MPI neighbors for y
+    MPI_Cart_shift( _mpi_comm, 1, 1, &comm_rank, &dest_rank );
+    int next_y_rank = dest_rank;
+    MPI_Cart_shift( _mpi_comm, 1,- 1, &comm_rank, &dest_rank );
+    int prev_y_rank = dest_rank;
+    // MPI neighbors for z
+    MPI_Cart_shift( _mpi_comm, 2, 1, &comm_rank, &dest_rank );
+    int next_z_rank = dest_rank;
+    MPI_Cart_shift( _mpi_comm, 2,- 1, &comm_rank, &dest_rank );
+    int prev_z_rank = dest_rank;
 
     // set constant for aosoa sizes
     const size_t num_ghost_cells = num_cells - num_real_cells;
@@ -185,24 +203,27 @@ ghosts_t::ghosts_t( size_t nx, size_t ny, size_t nz,
     int high_y = (ny-1)+num_ghosts;
     int high_z = (nz-1)+num_ghosts;
     Kokkos::deep_copy( exports_host, comm_rank ); // set default
-    // TODO: implement neighbor array and make 3d
-    // This stuff could be moved to move_p
     for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
         RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
+        ghost_sends_host(idx) = i;
+        ghost_recvs_host(idx) = mirror( i, nx, ny, nz, num_ghosts );
         if ( ix < low_x ) {
-            exports_host(idx) = prev_rank;
-            ghost_sends_host(idx) = i;
-            ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+            exports_host(idx++) = prev_x_rank;
         }
         else if ( ix > high_x ) {
-            exports_host(idx) = next_rank;
-            ghost_sends_host(idx) = i;
-            ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+            exports_host(idx++) = next_x_rank;
         }
-        else if ( iy < low_y || iy > high_y ||
-                  iz < low_z || iz > high_z ) {
-            ghost_sends_host(idx) = i;
-            ghost_recvs_host(idx++) = mirror( i, nx, ny, nz, num_ghosts );
+        if ( iy < low_y ) {
+            exports_host(idx++) = prev_y_rank;
+        }
+        else if ( iy > high_y ) {
+            exports_host(idx++) = next_y_rank;
+        }
+        if ( iz < low_z ) {
+            exports_host(idx++) = prev_z_rank;
+        }
+        else if ( iz > high_z ) {
+            exports_host(idx++) = next_z_rank;
         }
     }
     Kokkos::deep_copy( exports, exports_host );
@@ -213,12 +234,30 @@ ghosts_t::ghosts_t( size_t nx, size_t ny, size_t nz,
     _ghost_recvs = ghost_recvs;
 
     // set neighbors for accumulator topology 
-    std::vector<int> topology = { prev_rank, comm_rank, next_rank };
+    std::vector<int> topology = 
+        { prev_z_rank, prev_y_rank, prev_x_rank, comm_rank,
+          next_z_rank, next_y_rank, next_x_rank };
     std::sort( topology.begin(), topology.end() );
     auto unique_end = std::unique( topology.begin(), topology.end() );
     topology.resize( std::distance(topology.begin(), unique_end) );
     _distributor = std::make_shared<Cabana::Distributor<MemorySpace>>(
-        MPI_COMM_WORLD, _exports, topology );
+        _mpi_comm, _exports, topology );
+}
+
+// For periodic boundaries only
+// collapses the current on the boundaries becuase they are the same
+void ghosts_t::collapse_boundaries( accumulator_array_t accumulators )
+{
+    //auto _collapse_boundaries =
+    //    KOKKOS_LAMBDA( const size_t i )
+    //    {
+    //        size_t cell = _ghost_sends(i);
+    //        for ( size_t j = 0; j < ACCUMULATOR_VAR_COUNT; ++j ) {
+    //            for ( size_t k = 0; k < ACCUMULATOR_ARRAY_LENGHT; ++k ) {
+    //                
+    //            }
+    //        }
+    //    };
 }
 
 void ghosts_t::scatter( accumulator_array_t accumulators )
@@ -229,42 +268,48 @@ void ghosts_t::scatter( accumulator_array_t accumulators )
     // Ghosted cells move accumulators
     auto _fill_ghost_accumulator_buffer =
         KOKKOS_LAMBDA( const size_t s, const size_t i )
-    {
-        int c = s*accumulator_aosoa_t::vector_length + i;
-        size_t cell = _ghost_sends(c);
-        cells.access( s, i ) = _ghost_recvs(c);
-        for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
-            for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
-                size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
-                values.access( s, i, n ) = 
-                    accumulators( cell, ii, jj );
-                accumulators( cell, ii, jj ) = 0;
+        {
+            int c = s*accumulator_aosoa_t::vector_length + i;
+            size_t cell = _ghost_sends(c);
+            cells.access( s, i ) = _ghost_recvs(c);
+            for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
+                for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
+                    size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
+                    values.access( s, i, n ) = 
+                        accumulators( cell, ii, jj );
+                    accumulators( cell, ii, jj ) = 0;
+                }
             }
-        }
-    };
+        };
     Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
         ghost_send_policy( 0, _exports.size() );
-    Cabana::simd_parallel_for( ghost_send_policy, 
-        _fill_ghost_accumulator_buffer, "fill_accumulator_buffer()" );
+    Cabana::simd_parallel_for(
+        ghost_send_policy, 
+        _fill_ghost_accumulator_buffer,
+        "fill_accumulator_buffer()"
+    );
 
     Cabana::migrate( *_distributor, _accumulator_buffer );
 
     auto _add_ghost_accumulators = 
         KOKKOS_LAMBDA( const size_t s, const size_t i )
-    {
-        size_t cell = cells.access( s, i );
-        for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
-            for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
-                size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
-                accumulators( cell, ii, jj ) +=
-                    values.access( s, i, n );
+        {
+            size_t cell = cells.access( s, i );
+            for ( size_t ii = 0; ii < ACCUMULATOR_VAR_COUNT; ++ii ) {
+                for ( size_t jj = 0; jj < ACCUMULATOR_ARRAY_LENGTH; ++jj ) {
+                    size_t n = ii*ACCUMULATOR_ARRAY_LENGTH + jj;
+                    accumulators( cell, ii, jj ) +=
+                        values.access( s, i, n );
+                }
             }
-        }
-    };
+        };
     Cabana::SimdPolicy<accumulator_aosoa_t::vector_length,ExecutionSpace>
         ghost_recv_policy( 0, _exports.size() );
-    Cabana::simd_parallel_for( ghost_recv_policy, 
-        _add_ghost_accumulators, "add_ghost_accumulators()" );
+    Cabana::simd_parallel_for(
+            ghost_recv_policy,
+            _add_ghost_accumulators,
+            "add_ghost_accumulators()"
+    );
 }
 
 void ghosts_t::scatter( field_array_t fields )
@@ -277,17 +322,17 @@ void ghosts_t::scatter( field_array_t fields )
     // Ghosted cells move accumulators
     auto _fill_ghost_buffer =
         KOKKOS_LAMBDA( const size_t s, const size_t i )
-    {
-        int c = s*field_array_t::vector_length + i;
-        size_t cell = _ghost_sends(c);
-        size_t j = cell%field_array_t::vector_length;
-        size_t n = (cell-j)/field_array_t::vector_length;
-        cells.access( s, i ) = _ghost_recvs(c);
-        _ex.access( s, i ) = ex.access( n, j );
-        _jfx.access( s, i) = jfx.access( n, j );
-        ex.access( n, j ) = 0;
-        jfx.access( n, j ) = 0;
-    };
+        {
+            int c = s*field_array_t::vector_length + i;
+            size_t cell = _ghost_sends(c);
+            size_t j = cell%field_array_t::vector_length;
+            size_t n = (cell-j)/field_array_t::vector_length;
+            cells.access( s, i ) = _ghost_recvs(c);
+            _ex.access( s, i ) = ex.access( n, j );
+            _jfx.access( s, i) = jfx.access( n, j );
+            ex.access( n, j ) = 0;
+            jfx.access( n, j ) = 0;
+        };
     Cabana::SimdPolicy<field_array_t::vector_length,ExecutionSpace>
         ghost_send_policy( 0, _exports.size() );
     Cabana::simd_parallel_for( ghost_send_policy, 
@@ -297,13 +342,13 @@ void ghosts_t::scatter( field_array_t fields )
 
     auto _add_ghost_fields = 
         KOKKOS_LAMBDA( const size_t s, const size_t i )
-    {
-        size_t cell = cells.access( s, i ); 
-        size_t j = cell%field_array_t::vector_length;
-        size_t n = (cell-j)/field_array_t::vector_length;
-        ex.access( n, j ) += _ex.access( s, i );
-        jfx.access( n, j ) += _jfx.access( s, i );
-    };
+        {
+            size_t cell = cells.access( s, i ); 
+            size_t j = cell%field_array_t::vector_length;
+            size_t n = (cell-j)/field_array_t::vector_length;
+            ex.access( n, j ) += _ex.access( s, i );
+            jfx.access( n, j ) += _jfx.access( s, i );
+        };
     Cabana::SimdPolicy<field_array_t::vector_length,ExecutionSpace>
         ghost_recv_policy( 0, _exports.size() );
     Cabana::simd_parallel_for( ghost_recv_policy, 

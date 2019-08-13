@@ -25,12 +25,12 @@ class Initializer {
             MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
 
             Parameters::instance().NX_global = _nc;
-            Parameters::instance().NY_global = 1; //_nc;
-            Parameters::instance().NZ_global = 1; //_nc;
+            Parameters::instance().NY_global = _nc;
+            Parameters::instance().NZ_global = _nc;
 
             Parameters::instance().nx = Parameters::instance().NX_global/comm_size;
-            Parameters::instance().ny = Parameters::instance().NY_global;
-            Parameters::instance().nz = Parameters::instance().NZ_global;
+            Parameters::instance().ny = 1; //Parameters::instance().NY_global/comm_size;
+            Parameters::instance().nz = 1; //Parameters::instance().NZ_global/comm_size;
 
             Parameters::instance().num_ghosts = 1;
 

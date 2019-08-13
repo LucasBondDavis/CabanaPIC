@@ -43,6 +43,15 @@ int main( int argc, char* argv[] )
     MPI_Init( &argc, &argv );
     Cabana::initialize( argc, argv );
 
+    // Create Cartesian grid topology
+    int comm_size = -1;
+    MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
+    MPI_Comm grid_comm;
+    const int dims[3] = {comm_size, 1, 1}; // (nx, ny, nz)
+    const int wrap[3] = {1, 1, 1}; // periodic in all dimensions
+
+    MPI_Cart_create( MPI_COMM_WORLD, 3, dims, wrap, false, &grid_comm );
+
     printf ("#On Kokkos execution space %s\n",
             typeid (Kokkos::DefaultExecutionSpace).name ());
 
@@ -110,7 +119,7 @@ int main( int argc, char* argv[] )
         accumulator_array_t accumulators("Accumulator View", num_cells);
         auto scatter_add = Kokkos::Experimental::create_scatter_view(accumulators);
 
-        ghosts_t cell_ghosts( nx, ny, nz, num_ghosts, num_real_cells, num_cells);
+        ghosts_t cell_ghosts( nx, ny, nz, num_ghosts, num_real_cells, num_cells, grid_comm );
 
         field_array_t fields(num_cells);
 
@@ -118,7 +127,7 @@ int main( int argc, char* argv[] )
 
         // Can obviously supply solver type at compile time
         //Field_Solver<EM_Field_Solver> field_solver;
-        Field_Solver<ES_Field_Solver_1D> field_solver;
+        Field_Solver<ES_Field_Solver> field_solver;
 
         // Grab some global values for use later
         const Boundary boundary = Parameters::instance().BOUNDARY_TYPE;
@@ -181,14 +190,77 @@ int main( int argc, char* argv[] )
                     ny,
                     nz,
                     num_ghosts,
-                    boundary
+                    boundary,
+                    grid_comm
                 );
 
             // migrate particles across mpi ranks
             auto particle_exports = particles.slice<Comm_Rank>();
             auto particle_distributor = Cabana::Distributor<MemorySpace>(
-                MPI_COMM_WORLD, particle_exports );
+                grid_comm, particle_exports );
             Cabana::migrate( particle_distributor, particles );
+
+            Kokkos::Experimental::contribute(accumulators, scatter_add);
+
+            // Only reset the data if these two are not the same arrays
+            scatter_add.reset_except(accumulators);
+
+            // Accumulate current over periodic boundaries
+            int ix, iy, iz;
+            int low_x = num_ghosts;
+            int low_y = num_ghosts;
+            int low_z = num_ghosts;
+            int high_x = (nx-1)+num_ghosts;
+            int high_y = (ny-1)+num_ghosts;
+            int high_z = (nz-1)+num_ghosts;
+            for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
+                RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
+                if ( ix == low_x ) {
+                    
+                }   
+            }
+
+            // Ghosted cells move accumulators
+            cell_ghosts.scatter(accumulators);
+
+            // Map accumulator current back onto the fields
+            unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
+
+            // TODO: I don't know where exactly the field scatter should go
+            cell_ghosts.scatter(fields);
+
+            //     // Half advance the magnetic field from B_0 to B_{1/2}
+            //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
+
+            // Advance the electric field from E_0 to E_1
+            field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
+
+            //     // Half advance the magnetic field from B_{1/2} to B_1
+            //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
+
+            //     // Print particles.
+            //     print_particles( particles );
+
+            //     // Output vis
+            //     vis.write_vis(particles, step);
+            // reduce over mpi ranks
+            float e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
+            float total_e_energy = -1;
+            MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_FLOAT, MPI_SUM, 0, grid_comm );
+            printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
+        }
+
+    } // End Scoping block
+
+    printf("#Good!\n");
+    // Finalize.
+    Cabana::finalize();
+    MPI_Finalize();
+    return 0;
+}
+
+//---------------------------------------------------------------------------//
+//
 
             // NOTE: (deprecated) this could be moved to boundary_p()
             //auto cell = particles.slice<Cell_Index>();
@@ -210,12 +282,6 @@ int main( int argc, char* argv[] )
             //    vec_policy( 0, particles.size() );
             //Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
 
-            Kokkos::Experimental::contribute(accumulators, scatter_add);
-
-            // Only reset the data if these two are not the same arrays
-            scatter_add.reset_except(accumulators);
-
-            //boundary_p();
             //std::cout << std::endl;
             //int tx, ty, tz;
             //for ( int zz = 0; zz < num_cells; zz++) {
@@ -225,49 +291,6 @@ int main( int argc, char* argv[] )
             //  }
             //}
             //std::cout << std::endl;
-
-            // Ghosted cells move accumulators
-            cell_ghosts.scatter(accumulators);
-
-            // Map accumulator current back onto the fields
-            unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
-
-            // TODO: I don't know where exactly the field scatter should go
-            cell_ghosts.scatter(fields);
-
-            //     // Half advance the magnetic field from B_0 to B_{1/2}
-            //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
-
-            // Advance the electric field from E_0 to E_1
-            field_solver.advance_e(fields, px, py, pz, nx, ny, nz);
-            MPI_Barrier( MPI_COMM_WORLD );
-
-            //     // Half advance the magnetic field from B_{1/2} to B_1
-            //     field_solver.advance_b(fields, px, py, pz, nx, ny, nz);
-
-            //     // Print particles.
-            //     print_particles( particles );
-
-            //     // Output vis
-            //     vis.write_vis(particles, step);
-            // reduce over mpi ranks
-            float e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
-            float total_e_energy = -1;
-            MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD );
-            printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
-        }
-
-    } // End Scoping block
-
-    printf("#Good!\n");
-    // Finalize.
-    Cabana::finalize();
-    MPI_Finalize();
-    return 0;
-}
-
-//---------------------------------------------------------------------------//
-//
 
 ////// Known Possible Improvements /////
 // I pass nx/ny/nz round a lot more than I could

@@ -16,32 +16,32 @@ KOKKOS_INLINE_FUNCTION int detect_leaving_domain( size_t face, size_t nx, size_t
 
     int leaving = -1;
 
-    if (ix == 0)
+    if (ix < num_ghosts)
     {
         leaving = 0;
     }
 
-    if (iy == 0)
+    if (iy < num_ghosts)
     {
         leaving = 1;
     }
 
-    if (iz == 0)
+    if (iz < num_ghosts)
     {
         leaving = 2;
     }
 
-    if (ix == nx+1)
+    if (ix > (nx-1)+num_ghosts)
     {
         leaving = 3;
     }
 
-    if (iy == ny+1)
+    if (iy > (ny-1)+num_ghosts)
     {
         leaving = 4;
     }
 
-    if (iz == nz+1)
+    if (iz > (nz-1)+num_ghosts)
     {
         leaving = 5;
     }
@@ -65,14 +65,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
         const size_t ny,
         const size_t nz,
         const size_t num_ghosts,
-        const Boundary boundary
+        const Boundary boundary,
+        MPI_Comm mpi_comm
     )
 {
     // Get local MPI rank and world_size
-    int comm_size = -1;
-    MPI_Comm_size( MPI_COMM_WORLD, &comm_size );
     int comm_rank = -1;
-    MPI_Comm_rank( MPI_COMM_WORLD, &comm_rank );
+    MPI_Comm_rank( mpi_comm, &comm_rank );
 
     auto position_x = particles.slice<PositionX>();
     auto position_y = particles.slice<PositionY>();
@@ -90,7 +89,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
     /* // Kernel variables */
     real_t s_dir[3];
-    real_t v0, v1, v2, v3; //, v4, v5;
+    real_t v0, v1, v2, v3, v4, v5;
     size_t axis, face;
     size_t ix, iy, iz;
     /* //particle_t* p = p0 + pm->i; */
@@ -98,13 +97,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
     //q = qsp * weight.access(s, i);
 
-    for(;;) // FIXME should be inifinite
+    for(;;)
     {
-        /*
-           s_midx = p->dx;
-           s_midy = p->dy;
-           s_midz = p->dz;
-           */
 
         float s_midx = position_x.access(s, i);
         float s_midy = position_y.access(s, i);
@@ -152,56 +146,48 @@ KOKKOS_INLINE_FUNCTION int move_p(
         int ii = cell.access(s, i);
 
         //a = (float *)(a0 + ii);
-        _asa(ii,accumulator_var::jx, 0) += q*s_dispx;
-        _asa(ii,accumulator_var::jx, 1) += 0.0;
-        _asa(ii,accumulator_var::jx, 2) += 0.0;
-        _asa(ii,accumulator_var::jx, 3) += 0.0;
 
-        // #   define accumulate_j(X,Y,Z, offset)                                    \
-        //         v4  = q*s_disp##X;    /* v2 = q ux                            */  \
-        //         v1  = v4*s_mid##Y;    /* v1 = q ux dy                         */  \
-        //         v0  = v4-v1;          /* v0 = q ux (1-dy)                     */  \
-        //         v1 += v4;             /* v1 = q ux (1+dy)                     */  \
-        //         v4  = 1+s_mid##Z;     /* v4 = 1+dz                            */  \
-        //         v2  = v0*v4;          /* v2 = q ux (1-dy)(1+dz)               */  \
-        //         v3  = v1*v4;          /* v3 = q ux (1+dy)(1+dz)               */  \
-        //         v4  = 1-s_mid##Z;     /* v4 = 1-dz                            */  \
-        //         v0 *= v4;             /* v0 = q ux (1-dy)(1-dz)               */  \
-        //         v1 *= v4;             /* v1 = q ux (1+dy)(1-dz)               */  \
-        //         v0 += v5;             /* v0 = q ux [ (1-dy)(1-dz) + uy*uz/3 ] */  \
-        //         v1 -= v5;             /* v1 = q ux [ (1+dy)(1-dz) - uy*uz/3 ] */  \
-        //         v2 -= v5;             /* v2 = q ux [ (1-dy)(1+dz) - uy*uz/3 ] */  \
-        //         v3 += v5;             /* v3 = q ux [ (1+dy)(1+dz) + uy*uz/3 ] */  \
-        // 	a0(ii,offset+0) += v0;						\
-        // 	a0(ii,offset+1) += v1;						\
-        // 	a0(ii,offset+2) += v2;						\
-        // 	a0(ii,offset+3) += v3;
-        //         accumulate_j(x,y,z, 0); //a += 4;
-        //         accumulate_j(y,z,x, 4); //a += 4;
-        //         accumulate_j(z,x,y, 8);
-        // #   undef accumulate_j
+        //1D only
+        //_asa(ii, accumulator_var::jx, 0) += q*s_dispx;
+        //_asa(ii, accumulator_var::jx, 1) += 0.0;
+        //_asa(ii, accumulator_var::jx, 2) += 0.0;
+        //_asa(ii, accumulator_var::jx, 3) += 0.0;
+
+        #define ACCUMULATE_J(X,Y,Z)                                         \
+            v4  = q*s_disp##X;  /* v2 = q ux                            */  \
+            v1  = v4*s_mid##Y;  /* v1 = q ux dy                         */  \
+            v0  = v4-v1;        /* v0 = q ux (1-dy)                     */  \
+            v1 += v4;           /* v1 = q ux (1+dy)                     */  \
+            v4  = 1+s_mid##Z;   /* v4 = 1+dz                            */  \
+            v2  = v0*v4;        /* v2 = q ux (1-dy)(1+dz)               */  \
+            v3  = v1*v4;        /* v3 = q ux (1+dy)(1+dz)               */  \
+            v4  = 1-s_mid##Z;   /* v4 = 1-dz                            */  \
+            v0 *= v4;           /* v0 = q ux (1-dy)(1-dz)               */  \
+            v1 *= v4;           /* v1 = q ux (1+dy)(1-dz)               */  \
+            v0 += v5;           /* v0 = q ux [ (1-dy)(1-dz) + uy*uz/3 ] */  \
+            v1 -= v5;           /* v1 = q ux [ (1+dy)(1-dz) - uy*uz/3 ] */  \
+            v2 -= v5;           /* v2 = q ux [ (1-dy)(1+dz) - uy*uz/3 ] */  \
+            v3 += v5;           /* v3 = q ux [ (1+dy)(1+dz) + uy*uz/3 ] */  \
+            _asa(ii, accumulator_var::j##X, 0) += v0;                  \
+            _asa(ii, accumulator_var::j##X, 1) += v1;                  \
+            _asa(ii, accumulator_var::j##X, 2) += v2;                  \
+            _asa(ii, accumulator_var::j##X, 3) += v3;                  
+
+            ACCUMULATE_J(x,y,z);
+            ACCUMULATE_J(y,z,x);
+            ACCUMULATE_J(z,x,y);
+
+        #undef ACCUMULATE_J
 
         // Compute the remaining particle displacment
-        //if (ii == (nx+num_ghosts*2)*4+nx+num_ghosts-1 )
-        //{
-        //    if ( comm_rank == comm_size-1 ) {
-        //        std::cout << " move_p: s " << s << " i " << i <<
-        //            " disp_x(s,i) " <<
-        //            disp_x.access(s,i) <<
-        //            std::endl;
-        //    }
-        //}
         pm.dispx -= s_dispx;
         pm.dispy -= s_dispy;
         pm.dispz -= s_dispz;
 
-        //printf("%d %d, %d, %f %f",s, i, ii, position_x.access(s, i),position_x.access(s, i));
         // Compute the new particle offset
         position_x.access(s, i) += s_dispx+s_dispx;
         position_y.access(s, i) += s_dispy+s_dispy;
         position_z.access(s, i) += s_dispz+s_dispz;
-
-        //printf(" %f\n",position_x.access(s, i));
 
         // If an end streak, return success (should be ~50% of the time)
 
@@ -229,10 +215,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
         face = axis;
         if( v0>0 ) face += 3;
 
-        //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
-        ix = ii-((nx+2)*(ny+2)+(nx+2)); //ii-12;
-        iy = 1;
-        iz = 1;
+        RANK_TO_INDEX(ii, ix, iy, iz, nx+(2*num_ghosts), ny+(2*num_ghosts));
 
         if (face == 0) { ix--; }
         if (face == 1) { iy--; }
@@ -241,90 +224,36 @@ KOKKOS_INLINE_FUNCTION int move_p(
         if (face == 4) { iy++; }
         if (face == 5) { iz++; }
 
-//        int is_leaving_domain = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
-//        if (is_leaving_domain >= 0) {
-//            //std::cout << s << ", " << i << " leaving on " << face << std::endl;
-//
-//                 //std::cout <<
-//                 //" x " << position_x.access(s,i) <<
-//                 //" y " << position_y.access(s,i) <<
-//                 //" z " << position_z.access(s,i) <<
-//                 //" cell " << cell.access(s,i) <<
-//                 //std::endl;
-//            // TODO: make neighbor list for 3d (look at VPIC)
-//
-//            if ( boundary == Boundary::Periodic)
-//            {
-//                //std::cout << "face" << std::endl;
-//                // If we hit the periodic boundary, try and put the article in the right place
-//
-//                // TODO: we can do this in 1d just fine
-//
-//                //siz_t ix, iy, iz;
-//
-//                //RANK_TO_INDEX(ii, ix, iy, iz, (nx-1+(2*num_ghosts)), (ny-1+(2*num_ghosts)));
-//                /* ix = ii-12; */
-//                /* iy = 1; */
-//                /* iz = 1; */
-//                // TODO boundaries change if we allow particles into ghost cells
-//
-//                if (is_leaving_domain == 0) { // -1 on x face
-//                    //ix = (nx-1) + num_ghosts; // happens after pass now
-//                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-//                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
-//                }
-//                else if (is_leaving_domain == 1) { // -1 on y face
-//                    iy = (ny-1) + num_ghosts;
-//                }
-//                else if (is_leaving_domain == 2) { // -1 on z face
-//                    iz = (nz-1) + num_ghosts;
-//                }
-//                else if (is_leaving_domain == 3) { // 1 on x face
-//                    //ix = num_ghosts;
-//                    //printf("# %d EXPORT (%lu,%lu)->%d, axis: %lu\n",
-//                    //    comm_rank, s, i, mpi_rank.access(s,i), axis);
-//                }
-//                else if (is_leaving_domain == 4) { // 1 on y face
-//                    iy = num_ghosts;
-//                }
-//                else if (is_leaving_domain == 5) { // 1 on z face
-//                    iz = num_ghosts;
-//                }
-//                /* int updated_ii = VOXEL(ix, iy, iz, */
-//                /*         nx, */
-//                /*         ny, */
-//                /*         nz, */
-//                /*         num_ghosts); */
-//            }
-//
-//            /*         if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect) */
-//            /*         { */
-//            /*             // Hit a reflecting boundary condition.  Reflect the particle */
-//            /*             // momentum and remaining displacement and keep moving the */
-//            /*             // particle. */
-//
-//            /*             //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
-//
-//            /*             //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
-//            /*             //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
-//            /*             if (axis == 0) */
-//            /*             { */
-//            /*                 velocity_x.access(s, i) = -1.0f * velocity_x.access(s, i); */
-//            /*                 pm.dispx = -1.0f * s_dispx; */
-//            /*             } */
-//            /*             if (axis == 1) */
-//            /*             { */
-//            /*                 velocity_y.access(s, i) = -1.0f * velocity_y.access(s, i); */
-//            /*                 pm.dispy = -1.0f * s_dispy; */
-//            /*             } */
-//            /*             if (axis == 2) */
-//            /*             { */
-//            /*                 velocity_z.access(s, i) = -1.0f * velocity_z.access(s, i); */
-//            /*                 pm.dispz = -1.0f * s_dispz; */
-//            /*             } */
-//            /*             continue; */
-//            /*         } */
-//        }
+        //int is_leaving_domain = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
+        //if (is_leaving_domain >= 0) {
+        //    /*         if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect) */
+        //    /*         { */
+        //    /*             // Hit a reflecting boundary condition.  Reflect the particle */
+        //    /*             // momentum and remaining displacement and keep moving the */
+        //    /*             // particle. */
+
+        //    /*             //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
+
+        //    /*             //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
+        //    /*             //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
+        //    /*             if (axis == 0) */
+        //    /*             { */
+        //    /*                 velocity_x.access(s, i) = -1.0f * velocity_x.access(s, i); */
+        //    /*                 pm.dispx = -1.0f * s_dispx; */
+        //    /*             } */
+        //    /*             if (axis == 1) */
+        //    /*             { */
+        //    /*                 velocity_y.access(s, i) = -1.0f * velocity_y.access(s, i); */
+        //    /*                 pm.dispy = -1.0f * s_dispy; */
+        //    /*             } */
+        //    /*             if (axis == 2) */
+        //    /*             { */
+        //    /*                 velocity_z.access(s, i) = -1.0f * velocity_z.access(s, i); */
+        //    /*                 pm.dispz = -1.0f * s_dispz; */
+        //    /*             } */
+        //    /*             continue; */
+        //    /*         } */
+        //}
 
         /*     // TODO: this nieghbor stuff can be removed by going to more simple */
         /*     // boundaries */
@@ -348,17 +277,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
         /*     //cell.access(s, i) = neighbor - g->rangel; */
         /*     // TODO: I still need to update the cell we're in */
 
-        //1D only
-        int updated_ii = ix+(nx+2)*(ny+2) + (nx+2);
+        int updated_ii = VOXEL(ix, iy, iz,
+                nx,
+                ny,
+                nz,
+                num_ghosts);
+
         cell.access(s, i) = updated_ii;
-
-        /* int updated_ii = VOXEL(ix, iy, iz, */
-        /*         nx, */
-        /*         ny, */
-        /*         nz, */
-        /*         num_ghosts); */
-
-        /* cell.access(s, i) = updated_ii; */
         /*     //std::cout << "Moving from cell " << ii << " to " << updated_ii << std::endl; */
         /* } */
 
@@ -372,31 +297,63 @@ KOKKOS_INLINE_FUNCTION int move_p(
     }
     
     // Neighbor array would handle this better
+    int dest_rank = -1;
     int ii = cell.access(s,i);
     int exit_face = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
-    // TODO: currently assumes periodic boundary and 1d
+    // TODO: currently assumes periodic boundary and 1d partitioning of MPI ranks
     if ( exit_face == -1 )
         return 0;
-    if ( exit_face == 0 ) {
-        ix = (nx-1) + num_ghosts;
-        mpi_rank.access(s,i) = ( 0 == comm_rank ) ? comm_size-1 : comm_rank-1;
+    if ( boundary == Boundary::Periodic)
+    {
+        if ( exit_face == 0 ) {
+            ix = (nx-1) + num_ghosts;
+            MPI_Cart_shift( mpi_comm, 0, -1, &comm_rank, &dest_rank );
+            mpi_rank.access(s,i) = dest_rank;
+        }
+        else if (exit_face == 1) { // -1 on y face
+            iy = (ny-1) + num_ghosts;
+        }
+        else if (exit_face == 2) { // -1 on z face
+            iz = (nz-1) + num_ghosts;
+        }
+        else if ( exit_face == 3 ) {
+            ix = num_ghosts;
+            MPI_Cart_shift( mpi_comm, 0, 1, &comm_rank, &dest_rank );
+            mpi_rank.access(s,i) = dest_rank;
+        }
+        else if (exit_face == 4) { // 1 on y face
+            iy = num_ghosts;
+        }
+        else if (exit_face == 5) { // 1 on z face
+            iz = num_ghosts;
+        }
     }
-    else if (exit_face == 1) { // -1 on y face
-        iy = (ny-1) + num_ghosts;
-    }
-    else if (exit_face == 2) { // -1 on z face
-        iz = (nz-1) + num_ghosts;
-    }
-    else if ( exit_face == 3 ) {
-        ix = num_ghosts;
-        mpi_rank.access(s,i) = ( comm_size-1 == comm_rank ) ? 0 : comm_rank+1;
-    }
-    else if (exit_face == 4) { // 1 on y face
-        iy = num_ghosts;
-    }
-    else if (exit_face == 5) { // 1 on z face
-        iz = num_ghosts;
-    }
+    //if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect)
+    //{
+    //    // Hit a reflecting boundary condition.  Reflect the particle
+    //    // momentum and remaining displacement and keep moving the particle.
+
+    //    //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
+
+    //    //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
+    //    //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
+    //    if (axis == 0)
+    //    {
+    //        velocity_x.access(s, i) = -1.0f * velocity_x.access(s, i);
+    //        pm.dispx = -1.0f * s_dispx;
+    //    }
+    //    if (axis == 1)
+    //    {
+    //        velocity_y.access(s, i) = -1.0f * velocity_y.access(s, i);
+    //        pm.dispy = -1.0f * s_dispy;
+    //    }
+    //    if (axis == 2)
+    //    {
+    //        velocity_z.access(s, i) = -1.0f * velocity_z.access(s, i);
+    //        pm.dispz = -1.0f * s_dispz;
+    //    }
+    //    continue;
+    //}
     int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
     cell.access(s, i) = updated_ii;
 
