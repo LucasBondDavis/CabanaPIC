@@ -256,16 +256,20 @@ ghosts_t::ghosts_t(
 // collapses the current on the boundaries becuase they are the same
 void ghosts_t::collapse_boundaries( accumulator_array_t accumulators )
 {
-    //auto _collapse_boundaries =
-    //    KOKKOS_LAMBDA( const size_t i )
-    //    {
-    //        size_t cell = _ghost_sends(i);
-    //        for ( size_t j = 0; j < ACCUMULATOR_VAR_COUNT; ++j ) {
-    //            for ( size_t k = 0; k < ACCUMULATOR_ARRAY_LENGHT; ++k ) {
-    //                
-    //            }
-    //        }
-    //    };
+    int dims[3];
+    int wrap[3];
+    int coords[3];
+    MPI_Cart_get( _mpi_comm, 3, dims, wrap, coords );
+    auto _collapse_boundaries =
+        KOKKOS_LAMBDA( const size_t i )
+        {
+            size_t cell = _ghost_sends(i);
+            for ( size_t j = 0; j < ACCUMULATOR_VAR_COUNT; ++j ) {
+                for ( size_t k = 0; k < ACCUMULATOR_ARRAY_LENGTH; ++k ) {
+                    
+                }
+            }
+        };
 }
 
 void ghosts_t::scatter( accumulator_array_t accumulators )

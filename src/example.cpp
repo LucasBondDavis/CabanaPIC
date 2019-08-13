@@ -206,21 +206,6 @@ int main( int argc, char* argv[] )
             // Only reset the data if these two are not the same arrays
             scatter_add.reset_except(accumulators);
 
-            // Accumulate current over periodic boundaries
-            int ix, iy, iz;
-            int low_x = num_ghosts;
-            int low_y = num_ghosts;
-            int low_z = num_ghosts;
-            int high_x = (nx-1)+num_ghosts;
-            int high_y = (ny-1)+num_ghosts;
-            int high_z = (nz-1)+num_ghosts;
-            for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
-                RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
-                if ( ix == low_x ) {
-                    
-                }   
-            }
-
             // Ghosted cells move accumulators
             cell_ghosts.scatter(accumulators);
 
