@@ -71,6 +71,7 @@ class ghosts_t {
         const size_t num_ghosts,
         const size_t num_real_cells,
         const size_t num_cells,
+        const int dims[3],
         MPI_Comm mpi_comm
     );
 

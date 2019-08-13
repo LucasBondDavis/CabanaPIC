@@ -145,28 +145,17 @@ ghosts_t::ghosts_t(
         const size_t num_ghosts,
         const size_t num_real_cells,
         const size_t num_cells,
+        const int dims[3],
         MPI_Comm mpi_comm )
 { 
     // Get mpi info
     int comm_rank = -1;
+    int comm_size = -1;
+    int coords[3];
     _mpi_comm = mpi_comm;
     MPI_Comm_rank( _mpi_comm, &comm_rank );
-
-    // MPI neighbors for X
-    MPI_Cart_shift( _mpi_comm, 0, 1, &comm_rank, &dest_rank );
-    int next_x_rank = dest_rank;
-    MPI_Cart_shift( _mpi_comm, 0,- 1, &comm_rank, &dest_rank );
-    int prev_x_rank = dest_rank;
-    // MPI neighbors for y
-    MPI_Cart_shift( _mpi_comm, 1, 1, &comm_rank, &dest_rank );
-    int next_y_rank = dest_rank;
-    MPI_Cart_shift( _mpi_comm, 1,- 1, &comm_rank, &dest_rank );
-    int prev_y_rank = dest_rank;
-    // MPI neighbors for z
-    MPI_Cart_shift( _mpi_comm, 2, 1, &comm_rank, &dest_rank );
-    int next_z_rank = dest_rank;
-    MPI_Cart_shift( _mpi_comm, 2,- 1, &comm_rank, &dest_rank );
-    int prev_z_rank = dest_rank;
+    MPI_Comm_size( _mpi_comm, &comm_size );
+    MPI_Cart_coords( _mpi_comm, comm_rank, 3, coords );
 
     // set constant for aosoa sizes
     const size_t num_ghost_cells = num_cells - num_real_cells;
@@ -207,23 +196,41 @@ ghosts_t::ghosts_t(
         RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
         ghost_sends_host(idx) = i;
         ghost_recvs_host(idx) = mirror( i, nx, ny, nz, num_ghosts );
+        int cx = coords[0];
+        int cy = coords[1];
+        int cz = coords[2];
         if ( ix < low_x ) {
-            exports_host(idx++) = prev_x_rank;
+            cx = (ix + 1 - num_ghosts)/nx - 1 + coords[0];
+            cx = ( cx < 0 ) ? cx + dims[0] : cx;
         }
         else if ( ix > high_x ) {
-            exports_host(idx++) = next_x_rank;
+            cx = (ix - nx + num_ghosts)/nx + 1 + coords[0];
+            cx = ( cx > dims[0] ) ? cx - dims[0] : cx;
         }
-        if ( iy < low_y ) {
-            exports_host(idx++) = prev_y_rank;
-        }
-        else if ( iy > high_y ) {
-            exports_host(idx++) = next_y_rank;
-        }
-        if ( iz < low_z ) {
-            exports_host(idx++) = prev_z_rank;
-        }
-        else if ( iz > high_z ) {
-            exports_host(idx++) = next_z_rank;
+        //if ( iy < low_y ) {
+        //    cy = (iy + 1 - num_ghosts)/ny - 1 + coords[1];
+        //    cy = ( cy < 0 ) ? cy + dims[1] : cy;
+        //}
+        //else if ( iy > high_y ) {
+        //    cy = (iy - ny + num_ghosts)/ny + 1 + coords[1];
+        //    cy = ( cy > dims[1] ) ? cy - dims[1] : cy;
+        //}
+        //if ( iz < low_z ) {
+        //    cz = (iz - 1 + num_ghosts)/nz + 1 + coords[2];
+        //    cz = ( cz < 0 ) ? cz + dims[2] : cz;
+        //}
+        //else if ( iz > high_z ) {
+        //    cz = (iz - nz + num_ghosts)/nz + 1 + coords[2];
+        //    cz = ( cz > dims[2] ) ? cz - dims[2] : cz;
+        //}
+        if ( cx != coords[0]
+          || cy != coords[1]
+          || cz != coords[2] )
+        {
+            int dest_rank;
+            int c[3] = {cx, cy, cz};
+            MPI_Cart_rank( _mpi_comm, c, &dest_rank );
+            exports_host(idx++) = dest_rank;
         }
     }
     Kokkos::deep_copy( exports, exports_host );
@@ -233,10 +240,10 @@ ghosts_t::ghosts_t(
     _ghost_sends = ghost_sends;
     _ghost_recvs = ghost_recvs;
 
-    // set neighbors for accumulator topology 
-    std::vector<int> topology = 
-        { prev_z_rank, prev_y_rank, prev_x_rank, comm_rank,
-          next_z_rank, next_y_rank, next_x_rank };
+    // set neighbors for accumulator topology (assumes every cell is ghosted)
+    std::vector<int> topology( comm_size );
+    for ( int i = 0; i < comm_size; ++i )
+        topology.push_back(i);
     std::sort( topology.begin(), topology.end() );
     auto unique_end = std::unique( topology.begin(), topology.end() );
     topology.resize( std::distance(topology.begin(), unique_end) );
