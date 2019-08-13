@@ -69,9 +69,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
         MPI_Comm mpi_comm
     )
 {
-    // Get local MPI rank and world_size
-    int comm_rank = -1;
-    MPI_Comm_rank( mpi_comm, &comm_rank );
 
     auto position_x = particles.slice<PositionX>();
     auto position_y = particles.slice<PositionY>();
@@ -297,44 +294,57 @@ KOKKOS_INLINE_FUNCTION int move_p(
     }
     
     // Neighbor array would handle this better
-    int dest_rank = -1;
     int ii = cell.access(s,i);
-    int exit_face = detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts);
-    // TODO: currently assumes periodic boundary and 1d partitioning of MPI ranks
-    if ( exit_face == -1 )
+    // TODO: currently assumes periodic boundary
+    if ( detect_leaving_domain(face, nx, ny, nz, ix, iy, iz, num_ghosts) == -1 )
         return 0;
+    // Get mpi info
+    int dims[3];
+    int wrap[3];
+    int coords[3];
+    MPI_Cart_get( mpi_comm, 3, dims, wrap, coords );
     if ( boundary == Boundary::Periodic)
     {
-        if ( exit_face == 0 ) {
-            ix = (nx-1) + num_ghosts;
-            MPI_Cart_shift( mpi_comm, 0, -1, &comm_rank, &dest_rank );
-            mpi_rank.access(s,i) = dest_rank;
+        RANK_TO_INDEX( ii, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
+        int cx = coords[0];
+        int cy = coords[1];
+        int cz = coords[2];
+        if ( ix < num_ghosts ) {
+            cx = (ix + 1 - num_ghosts)/nx - 1 + coords[0];
+            cx = ( cx < 0 ) ? cx + dims[0] : cx;
+            ix = (nx-1) + num_ghosts; // TODO: enable mirror
         }
-        else if (exit_face == 1) { // -1 on y face
-            iy = (ny-1) + num_ghosts;
+        else if ( ix > (nx-1)+num_ghosts ) {
+            cx = (ix - nx + num_ghosts)/nx + 1 + coords[0];
+            cx = ( cx > dims[0] ) ? cx - dims[0] : cx;
+            ix = num_ghosts; // TODO: enable mirror
         }
-        else if (exit_face == 2) { // -1 on z face
-            iz = (nz-1) + num_ghosts;
-        }
-        else if ( exit_face == 3 ) {
-            ix = num_ghosts;
-            MPI_Cart_shift( mpi_comm, 0, 1, &comm_rank, &dest_rank );
-            mpi_rank.access(s,i) = dest_rank;
-        }
-        else if (exit_face == 4) { // 1 on y face
-            iy = num_ghosts;
-        }
-        else if (exit_face == 5) { // 1 on z face
-            iz = num_ghosts;
-        }
+        //if ( iy < num_ghosts ) {
+        //    cy = (iy + 1 - num_ghosts)/ny - 1 + coords[1];
+        //    cy = ( cy < 0 ) ? cy + dims[1] : cy;
+        //}
+        //else if ( iy > (ny-1)+num_ghosts ) {
+        //    cy = (iy - ny + num_ghosts)/ny + 1 + coords[1];
+        //    cy = ( cy > dims[1] ) ? cy - dims[1] : cy;
+        //}
+        //if ( iz < num_ghosts ) {
+        //    cz = (iz - 1 + num_ghosts)/nz + 1 + coords[2];
+        //    cz = ( cz < 0 ) ? cz + dims[2] : cz;
+        //}
+        //else if ( iz > (nz-1)+num_ghosts ) {
+        //    cz = (iz - nz + num_ghosts)/nz + 1 + coords[2];
+        //    cz = ( cz > dims[2] ) ? cz - dims[2] : cz;
+        //}
+        int dest_rank = -1;
+        int c[3] = {cx, cy, cz};
+        MPI_Cart_rank( mpi_comm, c, &dest_rank );
+        mpi_rank.access(s,i) = dest_rank;
     }
     //if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect)
     //{
     //    // Hit a reflecting boundary condition.  Reflect the particle
     //    // momentum and remaining displacement and keep moving the particle.
-
     //    //logger << "Reflecting " << s << " " << i << " on axis " << axis << std::endl; */
-
     //    //(&(p->ux    ))[axis] = -(&(p->ux    ))[axis]; */
     //    //(&(pm->dispx))[axis] = -(&(pm->dispx))[axis]; */
     //    if (axis == 0)
@@ -354,7 +364,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
     //    }
     //    continue;
     //}
-    int updated_ii = VOXEL( ix, iy, iz, nx,ny,nz,num_ghosts );
+    /**/           //mirror( ii, nx, ny, nz, num_ghosts ); (accumulator.cpp)
+    int updated_ii = VOXEL(ix,iy,iz,nx,ny,nz,num_ghosts);
     cell.access(s, i) = updated_ii;
 
     return 0; // Return "mover not in use"

@@ -120,6 +120,7 @@ void unload_accumulator_array(
 }
 
 // find the cell where ghosted parts go
+// TODO: doesn't work for num_ghosts > nx
 int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
     int ix, iy, iz;
     RANK_TO_INDEX( cell, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts );
@@ -127,7 +128,7 @@ int mirror( int cell, int nx, int ny, int nz, int num_ghosts ) {
         ix += nx;
     else if ( ix > (nx-1) + num_ghosts )
         ix -= nx;
-    //if ( iy < num_ghosts ) //ENABLE FOR 3d, breaks 1d
+    //if ( iy < num_ghosts ) // TODO: ENABLE FOR 3d, breaks 1d
     //    iy += ny;
     //else if ( iy > (ny-1) + num_ghosts )
     //    iy -= ny;
@@ -185,12 +186,12 @@ ghosts_t::ghosts_t(
     _field_buffer.resize(num_ghost_cells);
 
     int ix, iy, iz;
-    int low_x = num_ghosts;
-    int low_y = num_ghosts;
-    int low_z = num_ghosts;
-    int high_x = (nx-1)+num_ghosts;
-    int high_y = (ny-1)+num_ghosts;
-    int high_z = (nz-1)+num_ghosts;
+    const int low_x = num_ghosts;
+    const int low_y = num_ghosts;
+    const int low_z = num_ghosts;
+    const int high_x = (nx-1)+num_ghosts;
+    const int high_y = (ny-1)+num_ghosts;
+    const int high_z = (nz-1)+num_ghosts;
     Kokkos::deep_copy( exports_host, comm_rank ); // set default
     for ( size_t idx = 0, i = 0; i < num_cells; ++i ) {
         RANK_TO_INDEX( i, ix, iy, iz, nx+2*num_ghosts, ny+2*num_ghosts);
@@ -227,7 +228,7 @@ ghosts_t::ghosts_t(
           || cy != coords[1]
           || cz != coords[2] )
         {
-            int dest_rank;
+            int dest_rank = -1;
             int c[3] = {cx, cy, cz};
             MPI_Cart_rank( _mpi_comm, c, &dest_rank );
             exports_host(idx++) = dest_rank;
