@@ -32,6 +32,49 @@ cmake -DKOKKOS_DIR=$KOKKOS_INSTALL_DIR -DCABANA_DIR=$CABANA_INSTALL_DIR -D CMAKE
 
 Remember: Kokkos and Cabana need to be build with GPU support
 
+Example build script
+```
+#!/bin/bash
+#Local MPI build
+
+#mkdir -p /nh/u/lucasd/Projects/kokkos/build_openmp
+#cd /nh/u/lucasd/Projects/kokkos/build_openmp/
+#rm -rf *
+#../generate_makefile.bash \
+#    --prefix=/nh/u/lucasd/Projects/kokkos/build_openmp/install \
+#    --with-serial --with-openmp \
+#    --with-options=disable_warnings;
+#make -j 8 install
+#mkdir -p /nh/u/lucasd/Projects/cabana/build_openmp
+cd /nh/u/lucasd/Projects/cabana/build_openmp/
+#rm -rf *
+cmake \
+    -D CMAKE_BUILD_TYPE="Release" \
+    -D CMAKE_PREFIX_PATH=/nh/u/lucasd/Projects/kokkos/build_openmp/install\
+    -D CMAKE_INSTALL_PREFIX=/nh/u/lucasd/Projects/cabana/build_openmp/install \
+    -D CMAKE_CXX_FLAGS="-O3" \
+    -D CMAKE_EXE_LINKER_FLAGS="-O3" \
+    -D CMAKE_SHARED_LINKER_FLAGS="-O3" \
+    -D Cabana_ENABLE_Serial=ON \
+    -D Cabana_ENABLE_OpenMP=ON \
+    -D Cabana_ENABLE_MPI=ON \
+    .. ;
+    #-D Cabana_ENABLE_TESTING=ON \
+    #-D Cabana_ENABLE_EXAMPLES=ON \
+make -j 8 install
+cd /nh/u/lucasd/Projects/build-CabanaPIC/
+rm -rf *
+cmake \
+    -D KOKKOS_DIR=/nh/u/lucasd/Projects/kokkos/build_openmp/install \
+    -D CABANA_DIR=/nh/u/lucasd/Projects/cabana/build_openmp/install \
+    -D CMAKE_CXX_COMPILER=/usr/bin/mpicxx \
+    -D CMAKE_CXX_FLAGS="-O3" \
+    -D CMAKE_EXE_LINKER_FLAGS="-O3" \
+    -D CMAKE_SHARED_LINKER_FLAGS="-O3" \
+    ../fCabanaPIC ;
+make -j 8
+```
+
 ## Feature Wishlist
 
 1. Configurable to run in different precisions (real_t to configure float/double)
