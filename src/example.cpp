@@ -212,7 +212,6 @@ int main( int argc, char* argv[] )
             // Map accumulator current back onto the fields
             unload_accumulator_array(fields, accumulators, nx, ny, nz, num_ghosts, dx, dy, dz, dt);
 
-            // TODO: I don't know where exactly the field scatter should go
             cell_ghosts.scatter(fields);
 
             //     // Half advance the magnetic field from B_0 to B_{1/2}
@@ -248,26 +247,6 @@ int main( int argc, char* argv[] )
 //---------------------------------------------------------------------------//
 //
 
-            // NOTE: (deprecated) this could be moved to boundary_p()
-            //auto cell = particles.slice<Cell_Index>();
-            //auto x_vel = particles.slice<VelocityX>();
-            //auto disp_x = particles.slice<DispX>();
-            //auto _move_p =
-            //    KOKKOS_LAMBDA( const int s, const int i ) {
-            //        //while ( disp_x.access(s,i) > 0 ) { // should termiante after 4 iterations
-            //        // TODO: This is dangerous...
-            //        if ( disp_x.access(s,i) != 0.0 ) {
-            //            int ii = cell.access(s,i);
-            //            auto weights = particles.slice<Weight>();
-            //            real_t q = weights.access(s,i)*qsp;
-            //            move_p( scatter_add, particles, q, grid, s, i, nx, ny, nz,
-            //                    num_ghosts, boundary );
-            //        }
-            //    };
-            //Cabana::SimdPolicy<particle_list_t::vector_length,ExecutionSpace>
-            //    vec_policy( 0, particles.size() );
-            //Cabana::simd_parallel_for( vec_policy, _move_p, "move_p" );
-
             //std::cout << std::endl;
             //int tx, ty, tz;
             //for ( int zz = 0; zz < num_cells; zz++) {
@@ -277,6 +256,7 @@ int main( int argc, char* argv[] )
             //  }
             //}
             //std::cout << std::endl;
+
 
 ////// Known Possible Improvements /////
 // I pass nx/ny/nz round a lot more than I could

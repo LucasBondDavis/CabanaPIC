@@ -101,7 +101,7 @@ class ES_Field_Solver
             auto _e_energy = KOKKOS_LAMBDA( const int i, real_t & lsum )
             {
                 lsum += ex(i) * ex(i);
-                //lsum += ey(i) * ey(i);
+                //lsum += ey(i) * ey(i); // TODO: enable, still testing 1d
                 //lsum += ez(i) * ez(i);
             };
 

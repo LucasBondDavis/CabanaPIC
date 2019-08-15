@@ -75,8 +75,6 @@ class ghosts_t {
         MPI_Comm mpi_comm
     );
 
-    void collapse_boundaries( accumulator_array_t accumulators );
-
     void scatter( accumulator_array_t accumulators );
 
     void scatter( field_array_t fields );

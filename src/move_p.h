@@ -138,7 +138,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
         // Accumulate the streak.  Note: accumulator values are 4 times
         // the total physical charge that passed through the appropriate
         // current quadrant in a time-step
-        //v5 = q*s_dispx*s_dispy*s_dispz*(1./3.);
+        v5 = q*s_dispx*s_dispy*s_dispz*(1./3.);
 
         int ii = cell.access(s, i);
 
@@ -339,6 +339,8 @@ KOKKOS_INLINE_FUNCTION int move_p(
         int c[3] = {cx, cy, cz};
         MPI_Cart_rank( mpi_comm, c, &dest_rank );
         mpi_rank.access(s,i) = dest_rank;
+        int updated_ii = VOXEL(ix,iy,iz,nx,ny,nz,num_ghosts);
+        cell.access(s, i) = updated_ii;
     }
     //if ( Parameters::instance().BOUNDARY_TYPE == Boundary::Reflect)
     //{
@@ -365,8 +367,6 @@ KOKKOS_INLINE_FUNCTION int move_p(
     //    continue;
     //}
     /**/           //mirror( ii, nx, ny, nz, num_ghosts ); (accumulator.cpp)
-    int updated_ii = VOXEL(ix,iy,iz,nx,ny,nz,num_ghosts);
-    cell.access(s, i) = updated_ii;
 
     return 0; // Return "mover not in use"
 }
