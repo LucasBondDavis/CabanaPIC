@@ -57,7 +57,7 @@ class Initializer {
             Parameters::instance().len_y_global = default_grid_len;
             Parameters::instance().len_z_global = default_grid_len;
 
-            Parameters::instance().len_x = Parameters::instance().len_x_global/(float)comm_size; //default_grid_len;
+            Parameters::instance().len_x = Parameters::instance().len_x_global/(double)comm_size; //default_grid_len;
             Parameters::instance().len_y = default_grid_len;
             Parameters::instance().len_z = default_grid_len;
 
@@ -94,7 +94,7 @@ class Initializer {
             auto cell = particles.slice<Cell_Index>();
             auto mpi_rank = particles.slice<Comm_Rank>();
 
-            float v0 = Parameters::instance().v0;
+            double v0 = Parameters::instance().v0;
 
             // TODO: sensible way to do rand in parallel?
             //srand (static_cast <unsigned> (time(0)));

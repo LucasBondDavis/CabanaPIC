@@ -97,13 +97,13 @@ KOKKOS_INLINE_FUNCTION int move_p(
     for(;;)
     {
 
-        float s_midx = position_x.access(s, i);
-        float s_midy = position_y.access(s, i);
-        float s_midz = position_z.access(s, i);
+        double s_midx = position_x.access(s, i);
+        double s_midy = position_y.access(s, i);
+        double s_midz = position_z.access(s, i);
 
-        float s_dispx = pm.dispx;
-        float s_dispy = pm.dispy;
-        float s_dispz = pm.dispz;
+        double s_dispx = pm.dispx;
+        double s_dispy = pm.dispy;
+        double s_dispz = pm.dispz;
 
         s_dir[0] = (s_dispx>0) ? 1 : -1;
         s_dir[1] = (s_dispy>0) ? 1 : -1;
@@ -142,7 +142,7 @@ KOKKOS_INLINE_FUNCTION int move_p(
 
         int ii = cell.access(s, i);
 
-        //a = (float *)(a0 + ii);
+        //a = (double *)(a0 + ii);
 
         //1D only
         //_asa(ii, accumulator_var::jx, 0) += q*s_dispx;

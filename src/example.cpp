@@ -229,9 +229,9 @@ int main( int argc, char* argv[] )
             //     // Output vis
             //     vis.write_vis(particles, step);
             // reduce over mpi ranks
-            float e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
-            float total_e_energy = -1;
-            MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_FLOAT, MPI_SUM, 0, grid_comm );
+            double e_energy = field_solver.e_energy(fields, px, py, pz, nx, ny, nz);
+            double total_e_energy = -1;
+            MPI_Reduce( &e_energy, &total_e_energy, 1, MPI_DOUBLE, MPI_SUM, 0, grid_comm );
             printf( "%ld %f, %f\n", step, step*dt, total_e_energy );
         }
 

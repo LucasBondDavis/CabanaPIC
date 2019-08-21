@@ -1,7 +1,7 @@
 #ifndef pic_types_h
 #define pic_types_h
 
-#define real_t float
+#define real_t double
 
 #include <Kokkos_ScatterView.hpp>
 
@@ -57,13 +57,13 @@ enum UserParticleFields
 // Designate the types that the particles will hold.
 using ParticleDataTypes =
 Cabana::MemberTypes<
-    float,                        // (0) x-position
-    float,                        // (1) y-position
-    float,                        // (2) z-position
-    float,                        // (3) x-velocity
-    float,                        // (4) y-velocity
-    float,                        // (5) z-velocity
-    float,                        // (6) weight
+    double,                        // (0) x-position
+    double,                        // (1) y-position
+    double,                        // (2) z-position
+    double,                        // (3) x-velocity
+    double,                        // (4) y-velocity
+    double,                        // (5) z-velocity
+    double,                        // (6) weight
     int,                          // (7) Cell index
     int                           // (8) MPI rank
 >;
@@ -100,31 +100,31 @@ enum InterpolatorFields
 
 using InterpolatorDataTypes =
     Cabana::MemberTypes<
-    float, //  ex,
-    float , // dexdy,
-    float , // dexdz,
-    float , // d2exdydz,
-    float , // ey,
-    float , // deydz,
-    float , // deydx,
-    float , // d2eydzdx,
-    float , // ez,
-    float , // dezdx,
-    float , // dezdy,
-    float , // d2ezdxdy,
+    double, //  ex,
+    double , // dexdy,
+    double , // dexdz,
+    double , // d2exdydz,
+    double , // ey,
+    double , // deydz,
+    double , // deydx,
+    double , // d2eydzdx,
+    double , // ez,
+    double , // dezdx,
+    double , // dezdy,
+    double , // d2ezdxdy,
     // Below here is not need for ES? EM only?
-    float , // cbx,
-    float , // dcbxdx,
-    float , // cby,
-    float , // dcbydy,
-    float , // cbz,
-    float // dcbzdz,
+    double , // cbx,
+    double , // dcbxdx,
+    double , // cby,
+    double , // dcbydy,
+    double , // cbz,
+    double // dcbzdz,
     >;
 using interpolator_array_t = Cabana::AoSoA<InterpolatorDataTypes,MemorySpace,cell_blocking>;
 
 using AccumulatorDataTypes =
     Cabana::MemberTypes<
-    float[12], // jx[4] jy[4] jz[4]
+    double[12], // jx[4] jy[4] jz[4]
     size_t // cell id
 >;
 
@@ -134,10 +134,10 @@ using accumulator_aosoa_t = Cabana::AoSoA<AccumulatorDataTypes,MemorySpace,cell_
 #define ACCUMULATOR_ARRAY_LENGTH 4
 
 // TODO: should we flatten this out to 1D 12 big?
-using accumulator_array_t = Kokkos::View<float* [ACCUMULATOR_VAR_COUNT][ACCUMULATOR_ARRAY_LENGTH]>;
+using accumulator_array_t = Kokkos::View<double* [ACCUMULATOR_VAR_COUNT][ACCUMULATOR_ARRAY_LENGTH]>;
 
 using accumulator_array_sa_t = Kokkos::Experimental::ScatterView<
-    float *[ACCUMULATOR_VAR_COUNT][ACCUMULATOR_ARRAY_LENGTH]>; //, KOKKOS_LAYOUT,
+    double *[ACCUMULATOR_VAR_COUNT][ACCUMULATOR_ARRAY_LENGTH]>; //, KOKKOS_LAYOUT,
     //Kokkos::DefaultExecutionSpace, Kokkos::Experimental::ScatterSum,
     //KOKKOS_SCATTER_DUPLICATED, KOKKOS_SCATTER_ATOMIC
 //>;
@@ -176,15 +176,15 @@ using FieldDataTypes = Cabana::MemberTypes<
   material_id fmatx, fmaty, fmatz, cmat; // Material at face and cell centers
   */
 
-  float, // ex
-  float, // ey
-  float, // ez
-  float, // cbx
-  float, // cby
-  float, // cbz
-  float, // jfx
-  float, // jfy
-  float, // jfz
+  double, // ex
+  double, // ey
+  double, // ez
+  double, // cbx
+  double, // cby
+  double, // cbz
+  double, // jfx
+  double, // jfy
+  double, // jfz
   int    // cell
 >;
 
@@ -193,7 +193,7 @@ using field_array_t = Cabana::AoSoA<FieldDataTypes,MemorySpace,cell_blocking>;
 // TODO: should this be in it's own file?
 class particle_mover_t {
     public:
-  float dispx, dispy, dispz; // Displacement of particle
+  double dispx, dispy, dispz; // Displacement of particle
   int32_t i;                 // Index of the particle to move
 };
 

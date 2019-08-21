@@ -18,12 +18,12 @@
 class interpolator_t {
 
     public:
-        float ex, dexdy, dexdz, d2exdydz;
-        float ey, deydz, deydx, d2eydzdx;
-        float ez, dezdx, dezdy, d2ezdxdy;
-        float cbx, dcbxdx;
-        float cby, dcbydy;
-        float cbz, dcbzdz;
+        double ex, dexdy, dexdz, d2exdydz;
+        double ey, deydz, deydx, d2eydzdx;
+        double ez, dezdx, dezdy, d2ezdxdy;
+        double cbx, dcbxdx;
+        double cby, dcbydy;
+        double cbz, dcbzdz;
 
         interpolator_t() :
             ex(0.0), dexdy(0.0), dexdz(0.0), d2exdydz(0.0),
@@ -34,7 +34,7 @@ class interpolator_t {
             cbz(0.0), dcbzdz(0.0) { }
 
         // TODO: make sure the padding is done during allocation
-        //float _pad[2];  // 16-byte align
+        //double _pad[2];  // 16-byte align
 };
 
 void load_interpolator_array(

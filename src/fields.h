@@ -75,7 +75,7 @@ class ES_Field_Solver
             // the logic and is fairly cheap
             auto _advance_e = KOKKOS_LAMBDA( const int i )
             {
-                const float cj = 1; // TODO: g->dt/g->eps0;
+                const double cj = 1; // TODO: g->dt/g->eps0;
                 ex(i) = ex(i) + ( - cj * jfx(i) ) ;
                 ey(i) = ey(i) + ( - cj * jfy(i) ) ;
                 ez(i) = ez(i) + ( - cj * jfz(i) ) ;
@@ -156,7 +156,7 @@ class ES_Field_Solver_1D
             // the logic and is fairly cheap
             auto _advance_e = KOKKOS_LAMBDA( const int i )
             {
-                const float cj = 1; // TODO: g->dt/g->eps0;
+                const double cj = 1; // TODO: g->dt/g->eps0;
                 ex(i) = ex(i) + ( - cj * jfx(i) ) ;
             };
 
@@ -307,8 +307,8 @@ class EM_Field_Solver
 
             auto _advance_e = KOKKOS_LAMBDA( const int i )
             {
-                float old_tcax = 0.0;
-                float tcax = ( py*(cbz(i)) - pz*(cby(i))) - old_tcax;
+                double old_tcax = 0.0;
+                double tcax = ( py*(cbz(i)) - pz*(cby(i))) - old_tcax;
                 ex(i) = ex(i) +  tcax;
 
                 //f0->tcax = ( py*(f0->cbz*m[f0->fmatz].rmuz-fy->cbz*m[fy->fmatz].rmuz) - pz*(f0->cby*m[f0->fmaty].rmuy-fz->cby*m[fz->fmaty].rmuy) ) - damp*f0->tcax;
